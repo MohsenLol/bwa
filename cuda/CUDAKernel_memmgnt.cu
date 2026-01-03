@@ -33,22 +33,28 @@ __host__ void* CUDA_BufferInit(){
 	return (void*)d_pools;
 }
 
-__global__ void ResetBufferPoolKernel(void** d_buffer_pools) {
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i >= NBUFFERPOOLS) return;
+// todo clean up this function
+static void** h_pools = nullptr;
 
-    void* pool_addr = d_buffer_pools[i];
-    CUDAKernel_mem_info* info = reinterpret_cast<CUDAKernel_mem_info*>(pool_addr);
-    info->current_offset = sizeof(CUDAKernel_mem_info);
-    info->end_offset = static_cast<unsigned>(POOLSIZE);
-}
 
-__host__ void U_CUDAResetBufferPool(void* d_buffer_pools, cudaStream_t stream)
-{
-	const int threadsPerBlock = 256;
-	const int blocks = (NBUFFERPOOLS + threadsPerBlock - 1) / threadsPerBlock;
-	ResetBufferPoolKernel<<<blocks, threadsPerBlock, 0, stream>>>((void**)d_buffer_pools);
-
+__host__ void U_CUDAResetBufferPool(void* d_buffer_pools, cudaStream_t stream){
+	// first coppy the array of pool pointers to host
+	static bool loaded_first = false;
+	h_pools =(void**)malloc(NBUFFERPOOLS*sizeof(void*));
+	if(loaded_first == false){
+		gpuErrchk( cudaMemcpyAsync(h_pools, d_buffer_pools, NBUFFERPOOLS*sizeof(void*), cudaMemcpyDeviceToHost, stream) );
+		loaded_first = true;
+	}
+	// reset memory info at the head of each pool
+	const CUDAKernel_mem_info d_pool_info = {sizeof(CUDAKernel_mem_info), (unsigned)POOLSIZE};
+			// intermediate data on host
+	for (int i = 0; i < NBUFFERPOOLS; i++){
+		// find address of the start of the pool
+		void* pool_addr = ((void**)h_pools)[i];	
+		// set base offset
+		// copy d_pool_info to the start of the pool
+		gpuErrchk( cudaMemcpyAsync(pool_addr, &d_pool_info, sizeof(CUDAKernel_mem_info), cudaMemcpyHostToDevice, stream) );
+	}
 }
 __host__ void CUDAResetBufferPool(void* d_buffer_pools, cudaStream_t stream){
 	// first coppy the array of pool pointers to host
@@ -68,8 +74,6 @@ __host__ void CUDAResetBufferPool(void* d_buffer_pools, cudaStream_t stream){
 		// copy d_pool_info to the start of the pool
 		gpuErrchk( cudaMemcpyAsync(pool_addr, &d_pool_info, sizeof(CUDAKernel_mem_info), cudaMemcpyHostToDevice, stream) );
 	}
-
-	free(h_pools);
 }
 
 __device__ void* CUDAKernelSelectPool(void* d_buffer_pools, int i){
