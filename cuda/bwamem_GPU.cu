@@ -1347,7 +1347,7 @@ __global__ void MEMFINDING_collect_intv_kernel(
 	// allocate memory for SMEM intervals
 	__shared__ bwtintv_t* S_mem_a[1];
 	if (threadIdx.x == 0){
-		void* d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, blockIdx.x % 32);
+		void* d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, blockIdx.x & 31);
 		// min length of seed should be min_seed_len => we truncated (min_seed_len-1) positions from the end
 		S_mem_a[0] = (bwtintv_t*)CUDAKernelMalloc(d_buffer_ptr, (l_seq-min_seed_len+1)*sizeof(bwtintv_t), 8);
 		// n : number of intervals allocated
