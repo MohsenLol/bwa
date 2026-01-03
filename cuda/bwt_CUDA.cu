@@ -126,6 +126,12 @@ __device__ static void bwt_occ4_gpu(const bwt_t *bwt, bwtint_t k, bwtint_t cnt[4
 }
 
 // an analogy to bwt_occ4_gpu() but more efficient, requiring k <= l
+/*
+count bases 
+cntx[z] : z = {A=0, C=1, G=2, T3=3}
+cntk[z] : count of z upto k-1
+cntl[z] : count of z upto l-1
+*/
 __device__ static void bwt_2occ4_gpu(const bwt_t *bwt, bwtint_t k, bwtint_t l, bwtint_t cntk[4], bwtint_t cntl[4])
 {
 	bwtint_t _k, _l;
@@ -165,14 +171,17 @@ __device__ static void bwt_2occ4_gpu(const bwt_t *bwt, bwtint_t k, bwtint_t l, b
 
 __device__ static void bwt_extend_gpu(const bwt_t *bwt, const bwtintv_t *ik, bwtintv_t ok[4], int is_back)
 {
+	// tk : Occ(i, k) N(i) in [0 : k - 1]
+	// tl : Occ(i, l)
 	bwtint_t tk[4], tl[4];
 	int i;
-	bwt_2occ4_gpu(bwt, ik->x[!is_back] - 1, ik->x[!is_back] - 1 + ik->x[2], tk, tl);
+	bool back_inv = !is_back;
+	bwt_2occ4_gpu(bwt, ik->x[back_inv] - 1, ik->x[back_inv] - 1 + ik->x[2], tk, tl);
 	for (i = 0; i != 4; ++i) {
-		ok[i].x[!is_back] = bwt->L2[i] + 1 + tk[i];
+		ok[i].x[back_inv] = bwt->L2[i] + 1 + tk[i];
 		ok[i].x[2] = tl[i] - tk[i];
 	}
-	ok[3].x[is_back] = ik->x[is_back] + (ik->x[!is_back] <= bwt->primary && ik->x[!is_back] + ik->x[2] - 1 >= bwt->primary);
+	ok[3].x[is_back] = ik->x[is_back] + (ik->x[back_inv] <= bwt->primary && ik->x[back_inv] + ik->x[2] - 1 >= bwt->primary);
 	ok[2].x[is_back] = ok[3].x[is_back] + ok[3].x[2];
 	ok[1].x[is_back] = ok[2].x[is_back] + ok[2].x[2];
 	ok[0].x[is_back] = ok[1].x[is_back] + ok[1].x[2];
@@ -193,7 +202,7 @@ __device__ static void bwt_reverse_intvs(bwtintv_v *p)
 extern __device__ __constant__ unsigned char d_nst_nt4_table[256];
 #define d_charToInt(c) (d_nst_nt4_table[(int)c])	// for device code only
 #define d_intToChar(x) ("ACGTN"[(x)])
-__device__ int d_hashK(const uint8_t* s){
+__device__ __forceinline__ int d_hashK(const uint8_t* s){
     int out = 0;
     for (int i=0; i<KMER_K; i++){
         if (s[i]==4) return -1;
@@ -241,13 +250,18 @@ __device__ bool bwt_extend_right1(const bwt_t *bwt, int qlen, const uint8_t *q, 
 
 	return true;
 }
-
+#define BASE_COMPLEMENT(b) (3 - (b)) 
 
 // extend furthest to the right from a position and save that one seed
-__device__ void bwt_smem_right(const bwt_t *bwt, int len, const uint8_t *q, int x, int min_intv, uint64_t max_intv, int min_seed_len, bwtintv_t *mem_a, kmers_bucket_t *d_kmersHashTab)
+//bwt_smem_right(d_bwt, l_seq, seq, j, start_width, 0, min_seed_len, mem_a, d_kmerHashTab);
+__device__ __forceinline__  void bwt_smem_right(const bwt_t *bwt, int len, const uint8_t *q, int x, int min_intv, uint64_t max_intv, int min_seed_len, bwtintv_t *mem_a, kmers_bucket_t *d_kmersHashTab)
 {
 	bwtintv_t ik, ok[4];
 	if (min_intv < 1) min_intv = 1; // the interval size should be at least 1
+	// q[x] is a base
+	// ik.x[0] = start of q[x] interval
+	// ik.x[1] = start of q[x] complement interval
+	// ik.x[2] = size of q[x] interval
 	bwt_set_intv(bwt, q[x], ik); 	// the initial interval of a single base
 	// load interval for first K base from hash table
 	if (x>len-1-KMER_K) return;	// not enough space to the right for extension
@@ -255,14 +269,15 @@ __device__ void bwt_smem_right(const bwt_t *bwt, int len, const uint8_t *q, int 
 	if (hashValue==-1) return;	// hash N in this substring
 	kmers_bucket_t ikK = d_kmersHashTab[hashValue];
 	ik.x[0] = ikK.x[0]; ik.x[1] = ikK.x[1]; ik.x[2] = ikK.x[2];
+	// ik.info = (start | end)
 	ik.info = ((uint64_t)x<<32) | ((uint64_t)(x+KMER_K-1));
 
 	int i;
 	for (i = x + KMER_K; i < len; ++i) { // forward search
-		if (ik.x[2] < max_intv) { // an interval small enough
+		if (ik.x[2] < max_intv) { // extend until reach the string with maxlength = max_intv
 			break;
 		} else if (q[i] < 4) { // an A/C/G/T base
-			int c = 3 - q[i]; // complement of q[i]
+			int c = BASE_COMPLEMENT(q[i]); // complement of q[i]
 			bwt_extend_gpu(bwt, &ik, ok, 0);
 			if (ok[c].x[2] < min_intv) break; // the interval size is too small to be extended further
 			ik = ok[c]; 	// keep going
@@ -270,7 +285,8 @@ __device__ void bwt_smem_right(const bwt_t *bwt, int len, const uint8_t *q, int 
 			break; // always terminate extension at an ambiguous base; in this case, i<len always stands
 		}
 	}
-	ik.info = ((uint64_t)x<<32) | ((uint64_t)i);		// begin and end positions on seq
+	// ik.info = (start | end)
+	ik.info = ((uint64_t)x<<32) | ((uint64_t)i);		
 
 	// push the SMEM ik to mem if it is long enough
 	if (!(i-x>=min_seed_len)){
