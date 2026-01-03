@@ -306,6 +306,7 @@ int main_mem(int argc, char *argv[])
 	setlocale(LC_NUMERIC, "");
 	// kt_pipeline(1, process, &aux, 3);
 	// load kmer hash
+	// kmears_bucket_t *loadKMerIndex(const char* path);
 	aux.kmerHashTab = loadKMerIndex("kmers_index/hashTable");
 
 	superBatchMain(&aux);

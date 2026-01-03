@@ -114,7 +114,8 @@ static inline void kseq2bseq2(const kseq_t *ks, bseq1_t *s, superbatch_data_t *o
 }
 
 /* 
-	load all data to transfer_data
+	loads a chunks of paired reads from ks and ks2 into transfer_data
+	returns number of reads loaded in n_
  */
 void bseq_read2(int chunk_size, int *n_, void *ks1_, void *ks2_, superbatch_data_t *transfer_data)
 {

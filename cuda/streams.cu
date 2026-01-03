@@ -226,12 +226,14 @@ process_data_t* newProcess(
 
     return instance;
 }
-
-
+/* 
+allocate pinned host buffers and device buffers for a minibatch, plus create a CUDA stream.
+ */
 transfer_data_t* newTransfer(){
     transfer_data_t *instance = (transfer_data_t*)calloc(1, sizeof(transfer_data_t));
 
 	// initialize pinned memory for reads on host
+	// pinned memory = non-pageable memory on host for faster transfer with dircect access by GPU
 	gpuErrchk( cudaMallocHost((void**)&instance->h_seqs, MB_MAX_COUNT*sizeof(bseq1_t)) );
 	gpuErrchk( cudaMallocHost((void**)&instance->h_seq_name_ptr, MB_NAME_LIMIT) );
 	gpuErrchk( cudaMallocHost((void**)&instance->h_seq_comment_ptr, MB_COMMENT_LIMIT) );
@@ -266,7 +268,7 @@ transfer_data_t* newTransfer(){
         exit(1);
     }
 
-	// initialize a cuda stream for transfer
+	// initialize a cuda stream for transfer, this stream is used to overlap transfer and processing
 	instance->CUDA_stream = malloc(sizeof(cudaStream_t));
 	cudaStreamCreate((cudaStream_t*)instance->CUDA_stream);
 
@@ -310,7 +312,22 @@ void CUDATransferSeqsIn(transfer_data_t *transfer_data){
 	gpuErrchk( cudaStreamSynchronize(*transfer_stream) );
 }
 
-/* copy sam output to host */
+
+/*
+
+typedef struct {
+	int l_seq, id;
+	char *name, *comment, *seq, *qual, *sam;
+	int8_t l_name, l_comment;
+	int16_t l_qual;
+} bseq1_t;
+
+*/
+/* copy sam output to host
+	1) transfer d_seqs to h_seqs
+	2) transfer d_seq_sam_size to host 
+	
+*/
 void CUDATransferSamOut(transfer_data_t *transfer_data){
 	cudaStream_t *transfer_stream = (cudaStream_t*)(transfer_data->CUDA_stream);
 	gpuErrchk( cudaMemcpyAsync(transfer_data->h_seqs, transfer_data->d_seqs, transfer_data->n_seqs*sizeof(bseq1_t), cudaMemcpyDeviceToHost, *transfer_stream) );
@@ -323,7 +340,9 @@ void CUDATransferSamOut(transfer_data_t *transfer_data){
 
 	cudaStreamSynchronize(*transfer_stream);
 
-	// after GPU processing, seqs[i].sam are offset. Now we need to convert this offset to actual location
+	// h_seqs.sam pointers need to be fixed to point to h_seq_sam_ptr
+	// seqs[i].sam is an offset from the beginning of sam buffer which was on the device and now is on the host
+	// so we need to add the base pointer to each sam pointer
 	bseq1_t *seqs = transfer_data->h_seqs;
 	char *sam = transfer_data->h_seq_sam_ptr;
 	for (int i=0; i<transfer_data->n_seqs; i++)

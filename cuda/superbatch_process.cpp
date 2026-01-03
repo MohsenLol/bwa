@@ -78,6 +78,11 @@ static void sortReads(bseq1_t *reads, int n_reads)
  * @param transfer_data
  * @return int number of reads loaded from file
  */
+
+
+ // transfer reads from ks and ks2 to superbatch_data structure (transfer_data)
+ // after completing, transfer_data->reads will have pointers point to name, comment, seq, qual in transfer_data
+ // and transfer_data->n_reads will have number of reads loaded
 static int loadInputSuperBatch(kseq_t *ks, kseq_t *ks2, int actual_chunk_size, int copy_comment, superbatch_data_t *transfer_data)
 {
     struct timespec timing_start, timing_stop; // variables for printing timings
@@ -125,11 +130,35 @@ static void processSuperBatch(superbatch_data_t *data, transfer_data_t *mini_tra
  *
  * @param aux top-level data on this program: input fasta files, indexes, mapping parameters.
  */
+
+
+
+
+
+/*
+
+
+
+ typedef struct superbatch_data_t
+{
+	int n_reads;	   // number of valid reads (numbber of sequences in reads)
+	bseq1_t *reads;	   // reads quarries with pointers to the ones below  (n_reads elements)
+	char *name;		   // big chunk of all names
+	char *comment;	   // big chunk of all comments
+	char *seqs;		   // big chunk of all seqs
+	char *qual;		   // big chunk of all qual
+	long name_size;	   // total length of name strings
+	long comment_size; // total length of comment strings
+	long seqs_size;	   // total length of seq strings
+	long qual_size;	   // total length of qual strings
+} superbatch_data_t;
+*/
+
 void superBatchMain(ktp_aux_t *aux)
 {
     perf_profile_file << "batch,SMEM_CHN(ms),BSW(ms),SAM(ms)\n";
 
-    // init memory for 2 superbatches, 1 for processing and 1 for transfer
+    // two superbatch data structures, one for processing and one for transfer
     superbatch_data_t *super_process = newSuperBatchData();
     superbatch_data_t *super_transfer = newSuperBatchData();
     // init memory for minibatches so we don't have to do this repeatedly, 1 for processing and 1 for transfer
@@ -141,6 +170,7 @@ void superBatchMain(ktp_aux_t *aux)
     // except first batch where there is not yet data
     while (first_batch || super_process->n_reads != 0)
     {
+        // async load input super batch and process previous batch
         // async process current batch
         auto processAsync = std::async(std::launch::async, processSuperBatch, super_process, mini_transfer, mini_process); // does nothing if process_data->n_seqs is 0
         // async input next batch (process 0)
@@ -154,7 +184,7 @@ void superBatchMain(ktp_aux_t *aux)
         if (aux->n_processed > 0)
             fprintf(stderr, "[M::%-25s] **** superbatch %'ld finished \n", __func__, aux->n_processed);
 
-        // swap the two data sets for next iteration processing
+        // swap the two data sets for next iteration processing and init super_transfer for next input
         auto tmp = super_process;
         super_process = super_transfer;
         super_transfer = tmp;

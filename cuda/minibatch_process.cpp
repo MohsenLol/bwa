@@ -44,7 +44,51 @@ void convert2DevAddr(transfer_data_t *transfer_data)
 void copyReads2PinnedMem(superbatch_data_t *superbatch_data, transfer_data_t *transfer_data, int firstReadId, int n_reads){
 	int lastReadId = firstReadId + n_reads - 1; 
 	// copy name, comment, seq, qual one by one
+
+	/*
+	typedef struct {
+	int l_seq, id;
+	char *name, *comment, *seq, *qual, *sam;
+	int8_t l_name, l_comment;
+	int16_t l_qual;
+} bseq1_t;
+
+
+typedef struct {
+    // reads on device
+	int n_seqs;			// number of reads
+	int64_t total_input;	// number of reads input prior to this batch
+	int64_t total_output;	// number of reads output prior to this batch
+	bseq1_t *d_seqs;		// reads
+    char *d_seq_name_ptr, *d_seq_comment_ptr, *d_seq_seq_ptr, *d_seq_qual_ptr, *d_seq_sam_ptr;  // name, comment, seq, qual, sam output
+	int *d_seq_sam_size;	// length of sam on device
+    // pre-allocated reads on host
+    bseq1_t *h_seqs;		// reads
+    char *h_seq_name_ptr, *h_seq_comment_ptr, *h_seq_seq_ptr, *h_seq_qual_ptr, *h_seq_sam_ptr;  // name, comment, seq, qual, sam output
+	int h_seq_name_size, h_seq_comment_size, h_seq_seq_size, h_seq_qual_size; // total char length of name, comment, seq, qual in a batch
+    // pointers to CUDA stream, using generic pointers for compatibility with C
+    void *CUDA_stream;   // transfer stream
+} transfer_data_t;
+
+
+typedef struct superbatch_data_t
+{
+	int n_reads;	   // number of reads
+	bseq1_t *reads;	   // read info with pointers to the ones below
+	char *name;		   // big chunk of all names
+	char *comment;	   // big chunk of all comments
+	char *seqs;		   // big chunk of all seqs
+	char *qual;		   // big chunk of all qual
+	long name_size;	   // total length of name strings
+	long comment_size; // total length of comment strings
+	long seqs_size;	   // total length of seq strings
+	long qual_size;	   // total length of qual strings
+} superbatch_data_t;
+
+	*/
 	for (int i = firstReadId; i <= lastReadId; i++){
+		// h_seq_x_size keeps track of current size used in each buffer
+		// and grow as we copy each read
 		bseq1_t *read = &(superbatch_data->reads[i]);
 		char *toAddr = transfer_data->h_seq_name_ptr + transfer_data->h_seq_name_size;
 		memcpy(toAddr, read->name, read->l_name + 1); // size + 1 for null-terminating char
@@ -66,7 +110,7 @@ void copyReads2PinnedMem(superbatch_data_t *superbatch_data, transfer_data_t *tr
 		read->qual = toAddr;
 		transfer_data->h_seq_qual_size += read->l_qual + 1;
 	}
-	// copy read info
+	// copy read metadata array into pinned memory
 	memcpy(transfer_data->h_seqs, &superbatch_data->reads[firstReadId], n_reads * sizeof(bseq1_t));
 }
 
@@ -82,7 +126,7 @@ void copyReads2PinnedMem(superbatch_data_t *superbatch_data, transfer_data_t *tr
 static void loadInputMiniBatch(transfer_data_t *transfer_data, superbatch_data_t *superbatch_data, int n_loaded)
 {
 	struct timespec timing_start, timing_stop; // variables for printing timings
-	// number of reads to be loaded
+	// number of reads to be loaded = min (remaining reads in superbatch, MB_MAX_COUNT)
 	int n_reads_loading = superbatch_data->n_reads - n_loaded;
 	if (n_reads_loading <= 0){
 		transfer_data->n_seqs = 0;
@@ -90,9 +134,12 @@ static void loadInputMiniBatch(transfer_data_t *transfer_data, superbatch_data_t
 	}
 	if (n_reads_loading > MB_MAX_COUNT)
 		n_reads_loading = MB_MAX_COUNT;
+
+	// set all sizes to 0
 	resetTransfer(transfer_data);
 
 	transfer_data->n_seqs = n_reads_loading;
+	// up to this point, 0 to n_loaded - 1 reads have been loaded in previous minibatches
 	int first_readId = n_loaded;
 
 	// copy data from superbatch to minibatch
@@ -110,7 +157,8 @@ static void loadInputMiniBatch(transfer_data_t *transfer_data, superbatch_data_t
 
 	if (bwa_verbose >= 3)
 		clock_gettime(CLOCK_MONOTONIC_RAW, &timing_start);
-	// translate reads' addresses to GPU addresses
+	// translate reads' addresses to GPU addresses.
+	// d_address = h_address - h_base_address + d_base_address for name, seq, comment, qual
 	convert2DevAddr(transfer_data);
 	// copy data to GPU
 	CUDATransferSeqsIn(transfer_data);
@@ -138,6 +186,7 @@ static void writeOutputMiniBatch(transfer_data_t *transfer_data)
 	struct timespec timing_start, timing_stop; // variables for printing timings
 	// transfer from device's to host's
 	if (bwa_verbose >= 3) clock_gettime(CLOCK_MONOTONIC_RAW, &timing_start);
+
 	CUDATransferSamOut(transfer_data);
 	if (bwa_verbose >= 3) clock_gettime(CLOCK_MONOTONIC_RAW, &timing_stop);
 	if (bwa_verbose >= 3) fprintf(stderr, "[M::%-25s] ***transfer SAMs to host took %lu ms\n", __func__, (timing_stop.tv_nsec - timing_start.tv_nsec) / 1000000);

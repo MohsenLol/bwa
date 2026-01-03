@@ -41,7 +41,7 @@ __device__ __constant__ unsigned char d_nst_nt4_table[256] = {
 
 /* ------------------------------ DEVICE FUNCTIONS TO BE CALLED WITHIN KERNEL ---------------------------*/
 /************************
- * Seeding and Chaining *
+		void* d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, (blockIdx.x * blockDim.x + threadIdx.x) % 32);	// set buffer pool
  ************************/
 // return 1 if the seed is merged into the chain
 __device__ static int test_and_merge(const mem_opt_t *opt, int64_t l_pac, mem_chain_t *c, const mem_seed_t *p, int seed_rid, void* CUDAKernel_buffer)
@@ -107,7 +107,7 @@ __device__ int mem_chain_weight(const mem_chain_t *c)
 #define MEM_MINSC_COEF 5.5f
 #define MEM_SEEDSW_COEF 0.05f
 
-__device__ int mem_seed_sw(const mem_opt_t *opt, const bntseq_t *bns, const uint8_t *pac, int l_query, const uint8_t *query, const mem_seed_t *s, void* d_buffer_ptr)
+__device__ int mem_seed_sw(const mem_opt_t * __restrict__ opt, const bntseq_t * __restrict__ bns, const uint8_t * __restrict__ pac, int l_query, const uint8_t * __restrict__ query, const mem_seed_t * __restrict__ s, void* d_buffer_ptr)
 {
 	int qb, qe, rid;
 	int64_t rb, re, mid, l_pac = bns->l_pac;
@@ -135,7 +135,7 @@ __device__ int mem_seed_sw(const mem_opt_t *opt, const bntseq_t *bns, const uint
 	return x.score;
 }
 
-__device__ void mem_flt_chained_seeds(const mem_opt_t *opt, const bntseq_t *bns, const uint8_t *pac, int l_query, const uint8_t *query, int n_chn, mem_chain_t *a, void* d_buffer_ptr)
+__device__ void mem_flt_chained_seeds(const mem_opt_t * __restrict__ opt, const bntseq_t * __restrict__ bns, const uint8_t * __restrict__ pac, int l_query, const uint8_t * __restrict__ query, int n_chn, mem_chain_t * __restrict__ a, void* d_buffer_ptr)
 {
 	double min_l = opt->min_chain_weight? MEM_HSP_COEF * opt->min_chain_weight : MEM_MINSC_COEF * log((float)l_query);
 	int i, j, k, min_HSP_score = (int)(opt->a * min_l + .499);
@@ -158,7 +158,7 @@ __device__ void mem_flt_chained_seeds(const mem_opt_t *opt, const bntseq_t *bns,
  * Construct the alignment from a chain *
  ****************************************/
 
-__device__ static inline int cal_max_gap(const mem_opt_t *opt, int qlen)
+__device__ __forceinline__ static inline int cal_max_gap(const mem_opt_t *opt, int qlen)
 {
 	int l_del = (int)((double)(qlen * opt->a - opt->o_del) / opt->e_del + 1.);
 	int l_ins = (int)((double)(qlen * opt->a - opt->o_ins) / opt->e_ins + 1.);
@@ -169,7 +169,7 @@ __device__ static inline int cal_max_gap(const mem_opt_t *opt, int qlen)
 
 #define MAX_BAND_TRY  2
 
-__device__ void mem_chain2aln(const mem_opt_t *opt, const bntseq_t *bns, const uint8_t *pac, int l_query, const uint8_t *query, const mem_chain_t *c, mem_alnreg_v *av, void* d_buffer_ptr)
+__device__ void mem_chain2aln(const mem_opt_t * __restrict__ opt, const bntseq_t * __restrict__ bns, const uint8_t * __restrict__ pac, int l_query, const uint8_t * __restrict__ query, const mem_chain_t * __restrict__ c, mem_alnreg_v * __restrict__ av, void* d_buffer_ptr)
 {
 	int i, k, rid, max_off[2], aw[2]; // aw: actual bandwidth used in extension
 	int64_t l_pac = bns->l_pac, rmax[2], tmp, max = 0;
@@ -315,7 +315,7 @@ __device__ void mem_chain2aln(const mem_opt_t *opt, const bntseq_t *bns, const u
 #define PATCH_MAX_R_BW 0.05f
 #define PATCH_MIN_SC_RATIO 0.90f
 
-__device__ int mem_patch_reg(const mem_opt_t *opt, const bntseq_t *bns, const uint8_t *pac, uint8_t *query, const mem_alnreg_t *a, const mem_alnreg_t *b, int *_w, void* d_buffer_ptr)
+__device__ int mem_patch_reg(const mem_opt_t * __restrict__ opt, const bntseq_t * __restrict__ bns, const uint8_t * __restrict__ pac, uint8_t * __restrict__ query, const mem_alnreg_t * __restrict__ a, const mem_alnreg_t * __restrict__ b, int * __restrict__ _w, void* d_buffer_ptr)
 {
 	int w, score, q_s, r_s;
 	double r;
@@ -341,7 +341,7 @@ __device__ int mem_patch_reg(const mem_opt_t *opt, const bntseq_t *bns, const ui
 	return score;
 }
 
-__device__ int mem_sort_dedup_patch(const mem_opt_t *opt, const bntseq_t *bns, const uint8_t *pac, uint8_t *query, int n, mem_alnreg_t *a, void* d_buffer_ptr)
+__device__ int mem_sort_dedup_patch(const mem_opt_t * __restrict__ opt, const bntseq_t * __restrict__ bns, const uint8_t * __restrict__ pac, uint8_t * __restrict__ query, int n, mem_alnreg_t * __restrict__ a, void* d_buffer_ptr)
 {
 	int m, i, j;
 	if (n <= 1) return n;
@@ -410,7 +410,7 @@ __device__ int mem_sort_dedup_patch(const mem_opt_t *opt, const bntseq_t *bns, c
 typedef struct { size_t n, m; uint64_t *a; } uint64_v;
 
 
-__device__ static inline int mem_infer_dir(int64_t l_pac, int64_t b1, int64_t b2, int64_t *dist)
+__device__ __forceinline__ static inline int mem_infer_dir(int64_t l_pac, int64_t b1, int64_t b2, int64_t *dist)
 {
 	int64_t p2;
 	int r1 = (b1 >= l_pac), r2 = (b2 >= l_pac);
@@ -503,7 +503,7 @@ __device__ void mem_pestat_GPU(const mem_opt_t *opt, int64_t l_pac, int n, const
  * Basic hit->SAM conversion *
  *****************************/
 
-__device__ static inline int infer_bw(int l1, int l2, int score, int a, int q, int r)
+__device__ __forceinline__ static inline int infer_bw(int l1, int l2, int score, int a, int q, int r)
 {
 	int w;
 	if (l1 == l2 && l1 * a - score < (q + r - a)<<1) return 0; // to get equal alignment length, we need at least two gaps
@@ -523,7 +523,7 @@ __device__ static inline int infer_bw(int l1, int l2, int score, int a, int q, i
 // 	return l;
 // }
 
-__device__ static inline void add_cigar(const mem_opt_t *opt, mem_aln_t *p, kstring_t *str, int which, void* d_buffer_ptr)
+__device__ __forceinline__ static inline void add_cigar(const mem_opt_t *opt, mem_aln_t *p, kstring_t *str, int which, void* d_buffer_ptr)
 {
 	int i;
 	if (p->n_cigar) { // aligned
@@ -668,7 +668,7 @@ __device__ static inline void add_cigar(const mem_opt_t *opt, mem_aln_t *p, kstr
  *****************************************************/
 typedef struct { size_t n, m; int *a; } int_v;
 
-__device__ static inline int64_t bns_depos_GPU(const bntseq_t *bns, int64_t pos, int *is_rev)
+__device__ __forceinline__ static inline int64_t bns_depos_GPU(const bntseq_t *bns, int64_t pos, int *is_rev)
 {
 	return (*is_rev = (pos >= bns->l_pac))? (bns->l_pac<<1) - 1 - pos : pos;
 }
@@ -700,7 +700,7 @@ __device__ static int mem_approx_mapq_se(const mem_opt_t *opt, const mem_alnreg_
 }
 
 
-__device__ static inline uint64_t hash_64(uint64_t key)
+__device__ __forceinline__ static inline uint64_t hash_64(uint64_t key)
 {
 	key += ~(key << 32);
 	key ^= (key >> 22);
@@ -1304,6 +1304,16 @@ __device__ int mem_matesw(const mem_opt_t *opt, const bntseq_t *bns, const uint8
 /* find the SMEM starting at each position of the read 
 	for each position, only extend to the right
 	each block process a read
+
+
+d_opt	Global seeding parameters
+d_bwt	Reference genome index
+d_seqs	Input reads
+d_aux	Output SMEM intervals per read
+d_kmerHashTab	Fast seed lookup accelerator
+d_buffer_pools	Device memory allocator
+
+
 */
 #define start_width 1
 __global__ void MEMFINDING_collect_intv_kernel(
@@ -1340,7 +1350,10 @@ __global__ void MEMFINDING_collect_intv_kernel(
 	__shared__ bwtintv_t* S_mem_a[1];
 	if (threadIdx.x == 0){
 		void* d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, blockIdx.x % 32);
+		// min length of seed should be min_seed_len => we truncated (min_seed_len-1) positions from the end
 		S_mem_a[0] = (bwtintv_t*)CUDAKernelMalloc(d_buffer_ptr, (l_seq-min_seed_len+1)*sizeof(bwtintv_t), 8);
+		// n : number of intervals allocated
+		// m : maximum number of intervals allocated
 		a->mem.n = a->mem.m = l_seq-min_seed_len+1;
 		a->mem.a = S_mem_a[0];
 	}
@@ -1349,12 +1362,14 @@ __global__ void MEMFINDING_collect_intv_kernel(
 
 	// extend to the right and find the longest seed
 	// positions higher than l_seq-min_seed_len would produce unqualified seds anyways
+	// iterate over positions in parallel upto (l_seq-min_seed_len)(min_len criteria)
 	#pragma unroll
 	for (j=threadIdx.x; j<=(l_seq-min_seed_len); j+=blockDim.x){
+		// find SMEMS starting at position j in the read
+
 		bwt_smem_right(d_bwt, l_seq, S_seq, j, start_width, 0, min_seed_len, mem_a, d_kmerHashTab);
 	}
 }
-
 
 /* 
 * each thread does FM index search for several reads
@@ -1409,9 +1424,12 @@ __global__ void MEMFINDING_collect_intv_kernel_try1(
 	readID = blockIdx.x
  */
 __global__ void PREPROCESS_convert_bit_encoding_kernel(const bseq1_t *d_seqs){
+	// readID = blockIdx.x
+	// for each read, use 32 threads to convert in parallel
 	char *seq1 = d_seqs[blockIdx.x].seq; 	// get read from global mem
 	int l_seq  = d_seqs[blockIdx.x].l_seq;	// read length
 	for (int j=threadIdx.x; j<l_seq; j+=blockDim.x){
+		// if seq1[j] is converted previously, do nothing else convert using the table
 		uint8_t b = seq1[j] < 4? (uint8_t)seq1[j] : (uint8_t)d_nst_nt4_table[(int)seq1[j]];
 		seq1[j] = (char)b;
 	}
@@ -1540,7 +1558,7 @@ __global__ void mem_collect_intv_kernel1(const mem_opt_t *opt, const bwt_t *bwt,
 
 	i = blockIdx.x*blockDim.x + threadIdx.x;		// ID of the read to process
 	if (i>=n) return;
-	void* d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, threadIdx.x % 32);	// set buffer pool
+	void* d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, (blockIdx.x * blockDim.x + threadIdx.x) % 32);	// set buffer pool
 	smem_aux_t* a = &d_aux[i];						// get the aux for this read and init aux members
 	a->tmpv[0] = (bwtintv_v*)CUDAKernelCalloc(d_buffer_ptr, 1, sizeof(bwtintv_v), 8);
 	a->tmpv[0]->m = 30; a->tmpv[0]->a = (bwtintv_t*)CUDAKernelMalloc(d_buffer_ptr, 30*sizeof(bwtintv_t), 8);
@@ -1588,7 +1606,7 @@ __global__ void mem_collect_intv_kernel2(const mem_opt_t *opt, const bwt_t *bwt,
 
 	i = blockIdx.x*blockDim.x + threadIdx.x;		// ID of the read to process
 	if (i>=n) return;
-	void* d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, threadIdx.x % 32);	// set buffer pool
+	void* d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, (blockIdx.x * blockDim.x + threadIdx.x) % 32);	// set buffer pool
 	seq = (uint8_t*)d_seqs[i].seq;
 	len = d_seqs[i].l_seq;
 	smem_aux_t* a = &d_aux[i];						// get the aux for this read 
@@ -1622,7 +1640,7 @@ __global__ void mem_collect_intv_kernel3(const mem_opt_t *opt, const bwt_t *bwt,
 	int i;
 	i = blockIdx.x*blockDim.x + threadIdx.x;		// ID of the read to process
 	if (i>=n) return;
-	void* d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, threadIdx.x % 32);	// set buffer pool
+	void* d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, (blockIdx.x * blockDim.x + threadIdx.x) % 32);	// set buffer pool
 	seq = (uint8_t*)d_seqs[i].seq;
 	len = d_seqs[i].l_seq;
 	smem_aux_t* a = &d_aux[i];						// get the aux for this read and init aux members
@@ -1648,11 +1666,15 @@ __global__ void mem_collect_intv_kernel3(const mem_opt_t *opt, const bwt_t *bwt,
 }
 
 
-/* this kernel is to filter out dups and count the actual number of seeds
-	also spread out the seeds inside the same bwt interval
-	output: d_aux such that each interval has length 1, aux->x[1] = l_rep
-	if a bwt interval has length > opt->max_occ, only take max_occ seeds from it
-	each warp process all seeds of a seq
+/* 
+This kernel removes duplicate seeds and counts how many valid seeds remain.
+It also separates seeds that belong to the same BWT interval so that each output interval represents exactly one seed.
+The results are written to d_aux, where:
+each interval has length 1
+aux->x[1] stores the number of repeated seeds (l_rep)
+If a BWT interval contains more seeds than opt->max_occ, only the first max_occ seeds are kept and the rest are discarded.
+Each warp processes all the seeds of one read (sequence).
+
  */
 #define SEEDCHAINING_MAX_N_MEM 320
 __global__ void SEEDCHAINING_filter_seeds_kernel(
@@ -1665,13 +1687,15 @@ __global__ void SEEDCHAINING_filter_seeds_kernel(
 	bwtintv_t *mem_a = d_aux[blockIdx.x].mem.a;
 	int n_mem = d_aux[blockIdx.x].mem.n;
 	if (n_mem>SEEDCHAINING_MAX_N_MEM){printf("number of MEM too large: %d \n", n_mem); __trap();}
-	int max_occ = d_opt->max_occ;	// max length of an interval that we can count
+	int max_occ = d_opt->max_occ;	// Get the maximum allowed number of occurrences for a seed and save it in max_occ.
 
-	__shared__ uint32_t S_l_rep[1];		// repetitive length on read
+	// s_l_rep[0] is the total length of repetitive seeds
+	__shared__ uint32_t S_l_rep[1];		
+	// only one thread to init preventing race condition
 	if (threadIdx.x==0) S_l_rep[0] = 0;
 	__syncthreads();
 
-	// write down to SM the number of seeds each mem as 
+	// counter of valid seeds for each mem_a
 	__shared__ uint16_t S_nseeds[SEEDCHAINING_MAX_N_MEM];
 	int n_iter = SEEDCHAINING_MAX_N_MEM/WARPSIZE;
 	for (int i=0; i<n_iter; i++){
@@ -1680,9 +1704,11 @@ __global__ void SEEDCHAINING_filter_seeds_kernel(
 		if (mem_a[memID].info==0) {S_nseeds[memID] = 0; continue;}	// bad seed
 		if (memID>0 && (uint32_t)mem_a[memID].info==(uint32_t)mem_a[memID-1].info) S_nseeds[memID] = 0;	// duplicate
 		else {
+			// mem_a[memID].x[2]: number of seeds in this interval
 			if (mem_a[memID].x[2] > max_occ) {
 				S_nseeds[memID] = (uint16_t)max_occ;
 				uint64_t info = mem_a[memID].info;
+				// some shity fucked optimization for calculation length from stored (end-start)
 				uint32_t length = (uint32_t)info - (uint32_t)(info>>32);
 				atomicAdd(&S_l_rep[0], length);
 			}
@@ -1691,6 +1717,7 @@ __global__ void SEEDCHAINING_filter_seeds_kernel(
 	}
 	__syncthreads();
 	// add total n_seeds and allocate new mem_a with this total
+	// Sum32 is S_nseed[memID], number of valid seeds for this memID
 	int Sum = 0; int Sum32;
 	for (int i=0; i<n_iter; i++){
 		if (i*WARPSIZE>=n_mem) break;
@@ -2028,7 +2055,7 @@ __global__ void SEEDCHAINING_chain_kernel(
 		S_n_chains[0] = 0;
 	}
 	__syncthreads();
-	void *d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, (blockIdx.x+threadIdx.x)%32);
+	void *d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, (blockIdx.x * blockDim.x + threadIdx.x) % 32);
 	mem_chain_t *chain_a = S_chain_a[0];
 	for (int i=threadIdx.x; i<n_seeds&&i<SORTSEEDSHIGH_MAX_NSEEDS; i+=blockDim.x){	// i = seedID
 		if (S_preceding_seed[i] == i){	// seed i is head of chain
@@ -3481,11 +3508,14 @@ void mem_align_GPU(process_data_t *process_data)
 
 	/* ----------------------- Preprocessing: convert letters to bits --------------------------------------*/
 	if (bwa_verbose>=4) fprintf(stderr, "[M::%-25s] **** [PREPROCESS ]: convert letters to bits ...\n", __func__);
+	// converting ACTG to 0,1,2,3
+	// for each read, use 32 threads to convert in parallel
 	PREPROCESS_convert_bit_encoding_kernel <<< n_seqs, 32, 0, process_stream >>> (d_seqs);
 	gpuErrchk2( cudaPeekAtLastError() );
 	gpuErrchk2( cudaStreamSynchronize(process_stream) );
 
 	/* ----------------------- First part of pipeline: find SMEM intervals --------------------------------------*/
+
 	if (bwa_verbose>=4) fprintf(stderr, "[M::%-25s] **** [MEM FINDING]: collect MEM intervals ...\n", __func__);
 	MEMFINDING_collect_intv_kernel <<< n_seqs, 320, 512, process_stream >>> (
 			d_opt, d_bwt, d_seqs,
@@ -3539,31 +3569,6 @@ void mem_align_GPU(process_data_t *process_data)
 		d_buffer_pools);
 	gpuErrchk2( cudaPeekAtLastError() );
 	gpuErrchk2( cudaStreamSynchronize(process_stream) );
-
-	// /* second kernel: chaining seeds */
-	// if (bwa_verbose>=4)  fprintf(stderr, "[M::%-25s] **** [SEEDCHAINING]: Launch kernel mem_chain ...\n", __func__);
-	// dimGrid.x = ceil((double)gpu_data.n_seqs/CUDA_BLOCKSIZE);
-	// dimBlock.x = CUDA_BLOCKSIZE;
-	// mem_chain_kernel <<< dimGrid, dimBlock, 0 >>> (
-	// 		gpu_data.d_opt, gpu_data.d_bwt, gpu_data.d_bns, gpu_data.d_seqs,
-	// 		gpu_data.n_seqs,
-	// 		gpu_data.d_aux,
-	// 		gpu_data.d_chains,			// output
-	// 		gpu_data.d_seqIDs_out,		// for rearranging for better warp efficiency
-	// 		gpu_data.d_buffer_pools);
-	// gpuErrchk2( cudaPeekAtLastError() );
-	// gpuErrchk2( cudaDeviceSynchronize() );
-
-	/* pre-processing for third kernel: sort seqs by nchains */
-	// determine temporary storage requirement
-	// void* d_temp_storage = NULL;
-	// size_t temp_storage_size = 0;
-	// gpuErrchk2( cub::DeviceRadixSort::SortPairs(d_temp_storage, temp_storage_size, d_sortkey_in, d_sortkey_out, d_seqids_in, d_seqids_out, gpu_data.n_seqs) );
-	// // Allocate temporary storage
-	// fprintf(stderr, "[M::%-25s] sorting storage ..... %.2f MB\n", __func__, (float)temp_storage_size/1000000);
-	// gpuErrchk2( cudaMalloc(&d_temp_storage, temp_storage_size) );
-	// // perform radix sort
-	// gpuErrchk2( cub::DeviceRadixSort::SortPairsDescending(d_temp_storage, temp_storage_size, d_sortkey_in, d_sortkey_out, d_seqids_in, d_seqids_out, gpu_data.n_seqs) );
 
 	/* ----------------------- Third part of pipeline: Filtering chains --------------------------------------*/
 	/* sort chains */
@@ -3650,31 +3655,6 @@ void mem_align_GPU(process_data_t *process_data)
 	duration = duration_cast<milliseconds>(stop-start);
 	perf_profile_file << duration.count() << ",";
 
-	//  paired-end statistics 
-	// if (opt->flag&MEM_F_PE) { 
-	// 	// COPY d_regs to host memory 
-	// 	mem_alnreg_v* h_regs;
-	// 	h_regs = (mem_alnreg_v*)malloc(gpu_data.n_seqs * sizeof(mem_alnreg_v));
-	// 	cudaMemcpy(h_regs, d_regs, gpu_data.n_seqs*sizeof(mem_alnreg_v), cudaMemcpyDeviceToHost);
-	// 		// copy member array a
-	// 	mem_alnreg_t* temp_a;
-	// 	for (int i=0; i<gpu_data.n_seqs; i++ ){
-	// 		temp_a = (mem_alnreg_t*)malloc(h_regs[i].n*sizeof(mem_alnreg_t));
-	// 		cudaMemcpy(temp_a, h_regs[i].a, h_regs[i].n*sizeof(mem_alnreg_t), cudaMemcpyDeviceToHost);
-	// 		h_regs[i].a = temp_a;
-	// 	}
-	// 	// infer insert sizes if not provided
-	// 	mem_pestat_t pes[4];
-	// 	if (gpu_data.h_pes0) memcpy(pes, gpu_data.h_pes0, 4 * sizeof(mem_pestat_t)); 	// if pes0 != NULL, set the insert-size distribution as pes0
-	// 	else mem_pestat(opt, bns->l_pac, gpu_data.n_seqs, h_regs, pes); 		// otherwise, infer the insert size distribution from data
-	// 	// copy pes to device
-	// 	cudaMemcpy(gpu_data.d_pes, pes, 4*sizeof(mem_pestat_t), cudaMemcpyHostToDevice);
-	// 	// free intermediate data
-	// 	for (int i=0; i<gpu_data.n_seqs; i++ )
-	// 		free(h_regs[i].a);
-	// 	free(h_regs); 
-	// }
-	
 	start = high_resolution_clock::now();
 
 	/* Mark alignments that we want to write to SAM */
@@ -3744,16 +3724,7 @@ void mem_align_GPU(process_data_t *process_data)
 		);
 	gpuErrchk2( cudaPeekAtLastError() );
 	gpuErrchk2( cudaStreamSynchronize(process_stream) );
-	// high bandwidth
-	// if (bwa_verbose>=4) fprintf(stderr, "[M::%-25s] **** Launch kernel globalSW_high_bandwidth_kernel  ...\n", __func__);
-	// mem_globalSW_high_bandwidth_kernel <<< n_seeds, 32 >>> (
-	// 	gpu_data.d_opt,
-	// 	gpu_data.d_alns,
-	// 	gpu_data.d_seed_records,
-	// 	gpu_data.d_buffer_pools);
-	// gpuErrchk2( cudaPeekAtLastError() );
-	// gpuErrchk2( cudaDeviceSynchronize() );
-
+	
 	/* finalize aln */
 	if (bwa_verbose>=4) fprintf(stderr, "[M::%-25s] **** [FINALIZEALN]: gather all info and finalize aln ...\n", __func__);
 	FINALIZEALN_final_kernel <<< ceil((float)n_seeds/32), 32, 0, process_stream >>> (
