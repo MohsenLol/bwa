@@ -356,7 +356,7 @@ void resetProcess(process_data_t *process_data){
 	// reset memory management
 	
 	// CUDAResetBufferPool(process_data->d_buffer_pools, *process_stream);
-    U_CUDAResetBufferPool(process_data->d_buffer_pools. *process_stream);
+    U_CUDAResetBufferPool(process_data->d_buffer_pools, *process_stream);
 	// reset intermediate data
 		// reset seeds
 	gpuErrchk( cudaMemsetAsync(process_data->d_Nseeds, 0, sizeof(int), *process_stream) );
