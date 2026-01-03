@@ -668,7 +668,7 @@ __device__ __forceinline__ static  void add_cigar(const mem_opt_t *opt, mem_aln_
  *****************************************************/
 typedef struct { size_t n, m; int *a; } int_v;
 
-__device__ __forceinline__ static inline int64_t bns_depos_GPU(const bntseq_t *bns, int64_t pos, int *is_rev)
+__device__ __forceinline__ static  int64_t bns_depos_GPU(const bntseq_t *bns, int64_t pos, int *is_rev)
 {
 	return (*is_rev = (pos >= bns->l_pac))? (bns->l_pac<<1) - 1 - pos : pos;
 }
