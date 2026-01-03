@@ -33,6 +33,23 @@ __host__ void* CUDA_BufferInit(){
 	return (void*)d_pools;
 }
 
+__global__ void ResetBufferPoolKernel(void** d_buffer_pools) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= NBUFFERPOOLS) return;
+
+    void* pool_addr = d_buffer_pools[i];
+    CUDAKernel_mem_info* info = reinterpret_cast<CUDAKernel_mem_info*>(pool_addr);
+    info->current_offset = sizeof(CUDAKernel_mem_info);
+    info->end_offset = static_cast<unsigned>(POOLSIZE);
+}
+
+__host__ void U_CUDAResetBufferPool(void* d_buffer_pools, cudaStream_t stream)
+{
+	const int threadsPerBlock = 256;
+	const int blocks = (NBUFFERPOOLS + threadsPerBlock - 1) / threadsPerBlock;
+	ResetBufferPoolKernel<<<blocks, threadsPerBlock, 0, stream>>>((void**)d_buffer_pools);
+
+}
 __host__ void CUDAResetBufferPool(void* d_buffer_pools, cudaStream_t stream){
 	// first coppy the array of pool pointers to host
 	void** h_pools;

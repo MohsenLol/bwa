@@ -6,6 +6,9 @@ extern __host__ void* CUDA_BufferInit();
 // reset buffer pools
 extern __host__ void CUDAResetBufferPool(void* big_pool, cudaStream_t stream);
 
+extern __host__ void U_CUDAResetBufferPool(void* big_pool, cudaStream_t stream);
+
+
 /* FUNCTION TO DO MALLOC AND REALLOC WITHIN CUDA KERNELS */
 // select a buffer pool from the big pool
 extern __device__ void* CUDAKernelSelectPool(void* big_pool, int i);
