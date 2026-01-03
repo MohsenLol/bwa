@@ -158,7 +158,7 @@ __device__ void mem_flt_chained_seeds(const mem_opt_t * __restrict__ opt, const 
  * Construct the alignment from a chain *
  ****************************************/
 
-__device__ __forceinline__ static inline int cal_max_gap(const mem_opt_t *opt, int qlen)
+__device__ __forceinline__ static  int cal_max_gap(const mem_opt_t *opt, int qlen)
 {
 	int l_del = (int)((double)(qlen * opt->a - opt->o_del) / opt->e_del + 1.);
 	int l_ins = (int)((double)(qlen * opt->a - opt->o_ins) / opt->e_ins + 1.);
@@ -410,7 +410,7 @@ __device__ int mem_sort_dedup_patch(const mem_opt_t * __restrict__ opt, const bn
 typedef struct { size_t n, m; uint64_t *a; } uint64_v;
 
 
-__device__ __forceinline__ static inline int mem_infer_dir(int64_t l_pac, int64_t b1, int64_t b2, int64_t *dist)
+__device__ __forceinline__ static  int mem_infer_dir(int64_t l_pac, int64_t b1, int64_t b2, int64_t *dist)
 {
 	int64_t p2;
 	int r1 = (b1 >= l_pac), r2 = (b2 >= l_pac);
@@ -503,7 +503,7 @@ __device__ void mem_pestat_GPU(const mem_opt_t *opt, int64_t l_pac, int n, const
  * Basic hit->SAM conversion *
  *****************************/
 
-__device__ __forceinline__ static inline int infer_bw(int l1, int l2, int score, int a, int q, int r)
+__device__ __forceinline__ static  int infer_bw(int l1, int l2, int score, int a, int q, int r)
 {
 	int w;
 	if (l1 == l2 && l1 * a - score < (q + r - a)<<1) return 0; // to get equal alignment length, we need at least two gaps
@@ -523,7 +523,7 @@ __device__ __forceinline__ static inline int infer_bw(int l1, int l2, int score,
 // 	return l;
 // }
 
-__device__ __forceinline__ static inline void add_cigar(const mem_opt_t *opt, mem_aln_t *p, kstring_t *str, int which, void* d_buffer_ptr)
+__device__ __forceinline__ static  void add_cigar(const mem_opt_t *opt, mem_aln_t *p, kstring_t *str, int which, void* d_buffer_ptr)
 {
 	int i;
 	if (p->n_cigar) { // aligned
@@ -700,7 +700,7 @@ __device__ static int mem_approx_mapq_se(const mem_opt_t *opt, const mem_alnreg_
 }
 
 
-__device__ __forceinline__ static inline uint64_t hash_64(uint64_t key)
+__device__ __forceinline__ static  uint64_t hash_64(uint64_t key)
 {
 	key += ~(key << 32);
 	key ^= (key >> 22);
@@ -1428,9 +1428,11 @@ __global__ void PREPROCESS_convert_bit_encoding_kernel(const bseq1_t *d_seqs){
 	// for each read, use 32 threads to convert in parallel
 	char *seq1 = d_seqs[blockIdx.x].seq; 	// get read from global mem
 	int l_seq  = d_seqs[blockIdx.x].l_seq;	// read length
+
 	for (int j=threadIdx.x; j<l_seq; j+=blockDim.x){
-		// if seq1[j] is converted previously, do nothing else convert using the table
-		uint8_t b = seq1[j] < 4? (uint8_t)seq1[j] : (uint8_t)d_nst_nt4_table[(int)seq1[j]];
+		// coalesced memory access: load 4 bytes at once if aligned
+		uint8_t b = seq1[j];
+		if (b >= 4) b = d_nst_nt4_table[b];
 		seq1[j] = (char)b;
 	}
 }
