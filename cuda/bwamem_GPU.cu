@@ -2038,6 +2038,11 @@ __global__ void SEEDCHAINING_chain_kernel(
 {
 	// seqID = blockIdx.x
 	int n_seeds = d_seq_seeds[blockIdx.x].n;
+	if(n_seeds >= SORTSEEDSHIGH_MAX_NSEEDS)
+	{
+		printf("Error: number of seeds exceed maximum limit (%d) for chaining. SeqID=%d, n_seeds=%d\n", SORTSEEDSHIGH_MAX_NSEEDS, blockIdx.x, n_seeds);
+		__trap();
+	}
 	if (n_seeds==0){
 		d_chains[blockIdx.x].n = 0;
 		return;
@@ -2049,13 +2054,13 @@ __global__ void SEEDCHAINING_chain_kernel(
 	__shared__ int16_t S_preceding_seed[SORTSEEDSHIGH_MAX_NSEEDS];
 	__shared__ int S_suceeding_seed[SORTSEEDSHIGH_MAX_NSEEDS];
 	if (threadIdx.x==0) S_preceding_seed[0] = 0;	// seed 0 always head of a chain
-	for (int seedID=threadIdx.x; seedID<n_seeds&&seedID<SORTSEEDSHIGH_MAX_NSEEDS; seedID+=blockDim.x) S_suceeding_seed[seedID] = INT_MAX;	// initial: no chain yet
+	for (int seedID=threadIdx.x; seedID<n_seeds; seedID+=blockDim.x) S_suceeding_seed[seedID] = INT_MAX;	// initial: no chain yet
 	//!!!!!! need syncthreads here
 	// for each seed (except 0), find nearest preceding chainable seed
 	int max_chain_gap = d_opt->max_chain_gap;
 	int bandwidth_gap = d_opt->w;
 	int64_t l_pac = d_bns->l_pac;
-	for (int j=threadIdx.x+1; j<n_seeds&&j<SORTSEEDSHIGH_MAX_NSEEDS; j+=blockDim.x){
+	for (int j=threadIdx.x+1; j<n_seeds; j+=blockDim.x){
 		if (seed_a[j].rid==-1){
 			S_preceding_seed[j] = -1; continue;
 		} else S_preceding_seed[j] = j;
@@ -2085,7 +2090,7 @@ __global__ void SEEDCHAINING_chain_kernel(
 	}
 	__syncthreads();
 	// check the pairs of suceeding-preceeding. if unmatch, make seed head of chain
-	for (int j=threadIdx.x+1; j<n_seeds&&j<SORTSEEDSHIGH_MAX_NSEEDS; j+=blockDim.x){
+	for (int j=threadIdx.x+1; j<n_seeds; j+=blockDim.x){
 		if (S_preceding_seed[j]==-1) continue;
 		if (S_suceeding_seed[S_preceding_seed[j]] != j) // not match
 			S_preceding_seed[j] = j;	// make seed j head of chain
@@ -2102,7 +2107,7 @@ __global__ void SEEDCHAINING_chain_kernel(
 	__syncthreads();
 	void *d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, (blockIdx.x * blockDim.x + threadIdx.x) % 32);
 	mem_chain_t *chain_a = S_chain_a[0];
-	for (int i=threadIdx.x; i<n_seeds&&i<SORTSEEDSHIGH_MAX_NSEEDS; i+=blockDim.x){	// i = seedID
+	for (int i=threadIdx.x; i<n_seeds; i+=blockDim.x){	// i = seedID
 		if (S_preceding_seed[i] == i){	// seed i is head of chain
 			// start a new chain
 			int chainID = atomicAdd(&S_n_chains[0], 1);
