@@ -2024,6 +2024,9 @@ __device__ inline static int search_lower_bound_rbeg(mem_seed_t *seeds, int seed
      - suceeding_seed[i] = INT_MAX means that seed i has no suceeding seed
  */
 #define SEEDCHAINING_CHAIN_BLOCKDIMX 256
+// d_seq_seeds : input seeds sorted by rbeg
+// d_chains : output chains
+// d_seqs : for getting l_seq
 __global__ void SEEDCHAINING_chain_kernel(
 	const mem_opt_t *d_opt,
 	const bntseq_t *d_bns,
@@ -2041,12 +2044,13 @@ __global__ void SEEDCHAINING_chain_kernel(
 	}
 	mem_seed_t *seed_a = d_seq_seeds[blockIdx.x].a;	// seed array
 	int l_seq = d_seqs[blockIdx.x].l_seq;
-
+	// double linked-list representation of chains
+	// for each seed, store its preceding seed and suceeding seed on the chain
 	__shared__ int16_t S_preceding_seed[SORTSEEDSHIGH_MAX_NSEEDS];
 	__shared__ int S_suceeding_seed[SORTSEEDSHIGH_MAX_NSEEDS];
 	if (threadIdx.x==0) S_preceding_seed[0] = 0;	// seed 0 always head of a chain
 	for (int seedID=threadIdx.x; seedID<n_seeds&&seedID<SORTSEEDSHIGH_MAX_NSEEDS; seedID+=blockDim.x) S_suceeding_seed[seedID] = INT_MAX;	// initial: no chain yet
-
+	//!!!!!! need syncthreads here
 	// for each seed (except 0), find nearest preceding chainable seed
 	int max_chain_gap = d_opt->max_chain_gap;
 	int bandwidth_gap = d_opt->w;
