@@ -1889,8 +1889,7 @@ __global__ void SEEDCHAINING_sortSeeds_low_kernel(
 {
 	// seqID = blockIdx.x
 	int n_seeds = d_seq_seeds[blockIdx.x].n;
-	if (n_seeds==0) return;
-	if (n_seeds>SORTSEEDSLOW_MAX_NSEEDS) return;
+	if ((n_seeds==0) || (n_seeds>SORTSEEDSLOW_MAX_NSEEDS)) return;
 	mem_seed_t *seed_a = d_seq_seeds[blockIdx.x].a;
 	// declare sorting variables
 	// each thread loads and sorts SORTSEEDSLOW_NKEYS_THREAD keys
@@ -1944,7 +1943,7 @@ __global__ void SEEDCHAINING_sortSeeds_low_kernel(
 }
 
 
-// process reads who have more seeds
+// same as SEEDCHAINING_sortSeeds_low_kernel but for reads with large number of seeds(not implemented in warp-efficient way)
 __global__ void SEEDCHAINING_sortSeeds_high_kernel(
 	mem_seed_v *d_seq_seeds,
 	void *d_buffer_pools
@@ -1983,7 +1982,7 @@ __global__ void SEEDCHAINING_sortSeeds_high_kernel(
 	// reorder seeds to a new array
 	__shared__ mem_seed_t* S_new_seed_a[1];
 	if (threadIdx.x==0){
-		void *d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, blockIdx.x%32);
+		void *d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, blockIdx.x & 31);
 		S_new_seed_a[0] = (mem_seed_t*)CUDAKernelMalloc(d_buffer_ptr, n_seeds*sizeof(mem_seed_t), 8);
 	}
 	__syncthreads();
