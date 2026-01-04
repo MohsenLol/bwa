@@ -33,13 +33,12 @@ __host__ void* CUDA_BufferInit(){
 	return (void*)d_pools;
 }
 
-// todo clean up this function
-
 
 
 __host__ void U_CUDAResetBufferPool(void* d_buffer_pools, cudaStream_t stream){
 	// first coppy the array of pool pointers to host
 	static bool loaded_first = false;
+	// todo clean up this function
 	static void** h_pools = nullptr;
 	h_pools =(void**)malloc(NBUFFERPOOLS*sizeof(void*));
 	if(loaded_first == false){
