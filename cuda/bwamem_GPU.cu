@@ -1875,9 +1875,10 @@ typedef struct {
 #define SORTSEEDSHIGH_MAX_NSEEDS 	2048
 #define SORTSEEDSHIGH_NKEYS_THREAD	16
 #define SORTSEEDSHIGH_BLOCKDIMX		128
-#define SORTSEEDSLOW_MAX_NSEEDS 	64
 #define SORTSEEDSLOW_NKEYS_THREAD	2
 #define SORTSEEDSLOW_BLOCKDIMX		32
+#define SORTSEEDSLOW_MAX_NSEEDS 	SORTSEEDSLOW_BLOCKDIMX * SORTSEEDSLOW_NKEYS_THREAD
+
 // process reads who have less seeds (seeds <= SORTSEEDSLOW_MAX_NSEEDS)
 // warp-efficient shared-memory radix sort
 // sort mm_seed_t array by rbeg(refrence begin) for each read
