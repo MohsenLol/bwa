@@ -34,12 +34,13 @@ __host__ void* CUDA_BufferInit(){
 }
 
 // todo clean up this function
-static void** h_pools = nullptr;
+
 
 
 __host__ void U_CUDAResetBufferPool(void* d_buffer_pools, cudaStream_t stream){
 	// first coppy the array of pool pointers to host
 	static bool loaded_first = false;
+	static void** h_pools = nullptr;
 	h_pools =(void**)malloc(NBUFFERPOOLS*sizeof(void*));
 	if(loaded_first == false){
 		gpuErrchk( cudaMemcpyAsync(h_pools, d_buffer_pools, NBUFFERPOOLS*sizeof(void*), cudaMemcpyDeviceToHost, stream) );
