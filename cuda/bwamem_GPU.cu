@@ -1684,6 +1684,7 @@ __global__ void SEEDCHAINING_filter_seeds_kernel(
 	)
 {
 	// seqID = blockIdx.x
+	// blockIdx.x : query read index
 	bwtintv_t *mem_a = d_aux[blockIdx.x].mem.a;
 	int n_mem = d_aux[blockIdx.x].mem.n;
 	if (n_mem>SEEDCHAINING_MAX_N_MEM){printf("number of MEM too large: %d \n", n_mem); __trap();}
@@ -1708,7 +1709,7 @@ __global__ void SEEDCHAINING_filter_seeds_kernel(
 			if (mem_a[memID].x[2] > max_occ) {
 				S_nseeds[memID] = (uint16_t)max_occ;
 				uint64_t info = mem_a[memID].info;
-				// some shity fucked optimization for calculation length from stored (end-start)
+				// some shity fucked optimization for calculation length from stored [start:end) (end-start)
 				uint32_t length = (uint32_t)info - (uint32_t)(info>>32);
 				atomicAdd(&S_l_rep[0], length);
 			}
@@ -1727,12 +1728,12 @@ __global__ void SEEDCHAINING_filter_seeds_kernel(
 		for (int offset=WARPSIZE/2; offset>0; offset/=2)
 			Sum32 += __shfl_down_sync(0xffffffff, Sum32, offset);
 		Sum += Sum32;
-	}
+	}	
 	// now thread 0 has the correct Sum, allocate new mem_a on thread 0
 	__shared__ uint16_t S_total_nseeds[1];
 	__shared__ bwtintv_t* S_new_a[1];
 	if (threadIdx.x==0){
-		void *d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, blockIdx.x%32);
+		void *d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, blockIdx.x & 31);
 		S_total_nseeds[0] = Sum;
 		bwtintv_t* new_a;
 		if (Sum==0) new_a = 0;
@@ -1741,20 +1742,25 @@ __global__ void SEEDCHAINING_filter_seeds_kernel(
 			S_new_a[0] = new_a;
 		}
 		// save this info to the original d_aux array
+		// intervals corresponding to this read 
+		// for example : MEM0 : SA [1000, 2000), contains 5 seeds] 
+		// are now stored in new_a with total number Sum
 		d_aux[blockIdx.x].mem.a = new_a;
 		d_aux[blockIdx.x].mem.n = Sum;
 	}
 	__syncthreads();
+	// Sum is total number of valid intervals for this read
 	Sum = S_total_nseeds[0];
 	if (Sum==0) return;	// no seed
 	bwtintv_t *new_a = S_new_a[0];
 	// now write data to new_a from each thread
 	int cumulative_total = 0; int memID = 0; int next_non0_memID;
 	while (S_nseeds[memID]==0) memID++;	// find first non-0 memID
-	if (Sum>S_nseeds[memID]){
+	if (Sum>S_nseeds[memID]){ // if there is any other nonzero memID after this
 		next_non0_memID = memID+1;
 		while (S_nseeds[next_non0_memID]==0) next_non0_memID++;
 	}
+	// i cant understand this part
 	n_iter = Sum/WARPSIZE + 1;
 	for (int i=0; i<n_iter; i++){
 		int seedID = i*WARPSIZE + threadIdx.x;
@@ -1790,6 +1796,7 @@ __global__ void SEEDCHAINING_filter_seeds_kernel(
 	1 block process all seeds of a read
 	write output to d_seq_seeds
  */
+// d_bns : 
 __global__ void SEEDCHAINING_translate_seedinfo_kernel(
 	const mem_opt_t *d_opt,
 	const bwt_t *d_bwt,
@@ -1808,10 +1815,24 @@ __global__ void SEEDCHAINING_translate_seedinfo_kernel(
 		return;
 	} 
 
+
+	// 
+	// chaining data struct 
+	/**
+typedef struct {
+	int64_t rbeg : reference start postion of the seed
+	int32_t qbeg,: query start postion (on the read)
+	len; // (seed)match length
+	int score;
+	float frac_rep; fraction of match that is repetitive
+	int rid : mapped chromosome id (int : 0 - number of chromosomes)
+	int CUDA_PADDING;
+} mem_seed_t; // unaligned memory
+*/
 	// allocate seed array
 	__shared__ mem_seed_t* S_seq_seeds_a[1];
 	if (threadIdx.x==0){
-		void *d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, blockIdx.x%32);
+		void *d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, blockIdx.x & 31);
 		S_seq_seeds_a[0] = (mem_seed_t*)CUDAKernelMalloc(d_buffer_ptr, n_seeds*sizeof(mem_seed_t), 8);
 		d_seq_seeds[blockIdx.x].n = n_seeds;
 		d_seq_seeds[blockIdx.x].a = S_seq_seeds_a[0];
@@ -1819,8 +1840,10 @@ __global__ void SEEDCHAINING_translate_seedinfo_kernel(
 	__syncthreads();
 	// calculate frac_rep
 	float frac_rep;
+	// previously stored in mem_a[0].x[1]
 	int l_rep = (int)mem_a[0].x[1];
 	int l_seq = d_seqs[blockIdx.x].l_seq;
+	// check is redundant
 	frac_rep = l_rep<l_seq ? (float)l_rep/l_seq : 1;
 
 	// other info
@@ -1835,7 +1858,7 @@ __global__ void SEEDCHAINING_translate_seedinfo_kernel(
 		qend = (uint32_t)p_info;
 		// calculate rbeg
 		rbeg = bwt_sa_gpu(d_bwt, p0);
-		// calculate rid
+		// calculate rid (chromosome id of interval)
 		rid = bns_intv2rid_gpu(d_bns, rbeg, rbeg + qend - qbeg);
 		// save output		
 		seed_a[seedID].rbeg = rbeg;
@@ -1855,7 +1878,9 @@ __global__ void SEEDCHAINING_translate_seedinfo_kernel(
 #define SORTSEEDSLOW_MAX_NSEEDS 	64
 #define SORTSEEDSLOW_NKEYS_THREAD	2
 #define SORTSEEDSLOW_BLOCKDIMX		32
-// process reads who have less seeds
+// process reads who have less seeds (seeds <= SORTSEEDSLOW_MAX_NSEEDS)
+// warp-efficient shared-memory radix sort
+// sort mm_seed_t array by rbeg(refrence begin) for each read
 __global__ void SEEDCHAINING_sortSeeds_low_kernel(
 	mem_seed_v *d_seq_seeds,
 	void *d_buffer_pools
@@ -1867,17 +1892,24 @@ __global__ void SEEDCHAINING_sortSeeds_low_kernel(
 	if (n_seeds>SORTSEEDSLOW_MAX_NSEEDS) return;
 	mem_seed_t *seed_a = d_seq_seeds[blockIdx.x].a;
 	// declare sorting variables
+	// each thread loads and sorts SORTSEEDSLOW_NKEYS_THREAD keys
 	int64_t thread_keys[SORTSEEDSLOW_NKEYS_THREAD];	// this will contain rbeg
 	int thread_values[SORTSEEDSLOW_NKEYS_THREAD];	// this will contain original seedID
 	// load data
 	for (int i=0; i<SORTSEEDSLOW_NKEYS_THREAD; i++){
 		int seedID = threadIdx.x*SORTSEEDSLOW_NKEYS_THREAD+i;
+		// default is invalid data
+	
 		if (seedID < n_seeds) // load true data
+		{
 			thread_keys[i] = seed_a[seedID].rbeg;
-		else	// pad with INT64_MAX
-			thread_keys[i] = INT64_MAX;
-		if (seedID < n_seeds) thread_values[i] = seedID;	// original seedID
-		else thread_values[i] = -1;
+			thread_values[i] = seedID;	// original seedID
+		}
+		else
+		{
+			thread_keys[i] = INT64_MAX;	// pad with INT64_MAX
+			thread_values[i] = -1;
+		}
 	}
 
 	// Specialize BlockRadixSort
@@ -1890,7 +1922,7 @@ __global__ void SEEDCHAINING_sortSeeds_low_kernel(
 	// reorder seeds to a new array
 	__shared__ mem_seed_t* S_new_seed_a[1];
 	if (threadIdx.x==0){
-		void *d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, blockIdx.x%32);
+		void *d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, blockIdx.x & 31);
 		S_new_seed_a[0] = (mem_seed_t*)CUDAKernelMalloc(d_buffer_ptr, n_seeds*sizeof(mem_seed_t), 8);
 	}
 	__syncthreads();
@@ -1926,11 +1958,15 @@ __global__ void SEEDCHAINING_sortSeeds_high_kernel(
 	for (int i=0; i<SORTSEEDSHIGH_NKEYS_THREAD; i++){
 		int seedID = threadIdx.x*SORTSEEDSHIGH_NKEYS_THREAD+i;
 		if (seedID < n_seeds) // load true data
+		{
 			thread_keys[i] = seed_a[seedID].rbeg;
-		else	// pad with INT64_MAX
-			thread_keys[i] = INT64_MAX;
-		if (seedID < n_seeds) thread_values[i] = seedID;	// original seedID
-		else thread_values[i] = -1;
+			thread_values[i] = seedID;	// original seedID
+		}
+		else
+		{
+			thread_keys[i] = INT64_MAX;	// pad with INT64_MAX
+			thread_values[i] = -1;
+		}
 	}
 
 	// Specialize BlockRadixSort
@@ -3549,6 +3585,7 @@ void mem_align_GPU(process_data_t *process_data)
 
 	/* sort seeds by rbeg for each read */
 	if (bwa_verbose>=4)  fprintf(stderr, "[M::%-25s] **** [SEED CHAINING]: sorting seeds by rbeg (low n_seeds) ...\n", __func__);
+	
 	SEEDCHAINING_sortSeeds_low_kernel <<< n_seqs, SORTSEEDSLOW_BLOCKDIMX, 0, process_stream >>> (
 		d_seq_seeds,
 		d_buffer_pools);

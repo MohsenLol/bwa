@@ -25,11 +25,18 @@ __device__ static inline int64_t bns_depos_gpu(const bntseq_t *bns, int64_t pos,
 	return (*is_rev = (pos >= bns->l_pac))? (bns->l_pac<<1) - 1 - pos : pos;
 }
 
-
-__device__ int bns_intv2rid_gpu(const bntseq_t *bns, int64_t rb, int64_t re)
+// rb : interval  begin in refrence 
+// re : interval  end in refrence 
+// ... [rb......re] ....
+// bns : refrence genome mettadata
+// findes rid of interval in refrence genoom
+__device__ __forceinline__ int bns_intv2rid_gpu(const bntseq_t *bns, int64_t rb, int64_t re)
 {
 	int is_rev, rid_b, rid_e;
-	if (rb < bns->l_pac && re > bns->l_pac) return -2;
+	// the packed refrence is stored as 
+	// forward strand [0. .. l_pack) 
+	// reverse complenet [l_pack 2 * l_pack) 
+	if (rb < bns->l_pac && re > bns->l_pac) return -2; // interval placed in forward strand but ends in reverse strand => error
 	rid_b = bns_pos2rid_gpu(bns, bns_depos_gpu(bns, rb, &is_rev));
 	rid_e = rb < re? bns_pos2rid_gpu(bns, bns_depos_gpu(bns, re - 1, &is_rev)) : rid_b;
 	return rid_b == rid_e? rid_b : -1;

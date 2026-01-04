@@ -44,7 +44,7 @@ __device__ static inline int __occ_aux(uint64_t y, int c)
 	return ((y + (y >> 4)) & 0xf0f0f0f0f0f0f0full) * 0x101010101010101ull >> 56;
 }
 
-__device__ static bwtint_t bwt_occ_gpu(const bwt_t *bwt, bwtint_t k, ubyte_t c)
+__device__ __forceinline__ static bwtint_t bwt_occ_gpu(const bwt_t *bwt, bwtint_t k, ubyte_t c)
 {
 	bwtint_t n;
 	uint32_t *p, *end;
@@ -446,18 +446,29 @@ __device__ int bwt_seed_strategy1_gpu(const bwt_t *bwt, int len, const uint8_t *
 #define bwt_bwt(b, k) ((b)->bwt[((k)>>7<<4) + sizeof(bwtint_t) + (((k)&0x7f)>>4)])
 #define bwt_B0(b, k) (bwt_bwt(b, k)>>((~(k)&0xf)<<1)&3)
 
+// what is the previous position in bwt for position k  Ψ⁻¹ 
 __device__ static inline bwtint_t bwt_invPsi(const bwt_t *bwt, bwtint_t k) // compute inverse CSA
 {
+	// bwt->primary : position of $ in bwt
+	// convert to compacted bwt used in bwt_B0
 	bwtint_t x = k - (k > bwt->primary);
+	// 2-bit character code of x => x
 	x = bwt_B0(bwt, x);
+	// bwt->L2[x] : number of characters smaller than x in the original text
+	// bwt_occ_gpu(bwt, k, x) : number of character x in bwt[0..k-1]
 	x = bwt->L2[x] + bwt_occ_gpu(bwt, k, x);
+	// => x : postion of the previous character in bwt
+// return 0 if k is the primary index
 	return k == bwt->primary? 0 : x;
 }
 
-__device__ bwtint_t bwt_sa_gpu(const bwt_t *bwt, bwtint_t k)
+__device__ __forceinline__ bwtint_t bwt_sa_gpu(const bwt_t *bwt, bwtint_t k)
 {
+
+	// sa how many steps we go backward
+	// sa_int : sa saved interval for bwt
 	bwtint_t sa = 0, mask = bwt->sa_intv - 1;
-	while (k & mask) {
+	while (k & mask) /*while mod(k, mask) != 0 (not saved sd)*/ { 
 		++sa;
 		k = bwt_invPsi(bwt, k);
 	}
