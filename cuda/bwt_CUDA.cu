@@ -254,7 +254,7 @@ __device__ bool bwt_extend_right1(const bwt_t *bwt, int qlen, const uint8_t *q, 
 
 // extend furthest to the right from a position and save that one seed
 //bwt_smem_right(d_bwt, l_seq, seq, j, start_width, 0, min_seed_len, mem_a, d_kmerHashTab);
-__device__ __forceinline__  void bwt_smem_right(const bwt_t *bwt, int len, const uint8_t *q, int x, int min_intv, uint64_t max_intv, int min_seed_len, bwtintv_t *mem_a, kmers_bucket_t *d_kmersHashTab)
+__device__ void bwt_smem_right(const bwt_t *bwt, int len, const uint8_t *q, int x, int min_intv, uint64_t max_intv, int min_seed_len, bwtintv_t *mem_a, kmers_bucket_t *d_kmersHashTab)
 {
 	bwtintv_t ik, ok[4];
 	if (min_intv < 1) min_intv = 1; // the interval size should be at least 1
@@ -462,7 +462,7 @@ __device__ static inline bwtint_t bwt_invPsi(const bwt_t *bwt, bwtint_t k) // co
 	return k == bwt->primary? 0 : x;
 }
 
-__device__ __forceinline__ bwtint_t bwt_sa_gpu(const bwt_t *bwt, bwtint_t k)
+__device__ bwtint_t bwt_sa_gpu(const bwt_t *bwt, bwtint_t k)
 {
 
 	// sa how many steps we go backward

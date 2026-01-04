@@ -30,7 +30,7 @@ __device__ static inline int64_t bns_depos_gpu(const bntseq_t *bns, int64_t pos,
 // ... [rb......re] ....
 // bns : refrence genome mettadata
 // findes rid of interval in refrence genoom
-__device__ __forceinline__ int bns_intv2rid_gpu(const bntseq_t *bns, int64_t rb, int64_t re)
+__device__ int bns_intv2rid_gpu(const bntseq_t *bns, int64_t rb, int64_t re)
 {
 	int is_rev, rid_b, rid_e;
 	// the packed refrence is stored as 
