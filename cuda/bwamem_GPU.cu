@@ -2056,7 +2056,17 @@ __global__ void SEEDCHAINING_chain_kernel(
 	if (threadIdx.x==0) S_preceding_seed[0] = 0;	// seed 0 always head of a chain
 	for (int seedID=threadIdx.x; seedID<n_seeds; seedID+=blockDim.x) S_suceeding_seed[seedID] = INT_MAX;	// initial: no chain yet
 	//!!!!!! need syncthreads here
+
 	// for each seed (except 0), find nearest preceding chainable seed
+	// maximum gap between two seeds on a chain
+	// conditions for two seeds i,j to be chainable (i<j):
+	// 1. rid_i == rid_j
+	// 2. not crossing the boundary of circular and linear chromosomes
+	// 3. qbeg_j >= qbeg_i
+	// 4. rbeg_j >= rbeg_i
+	// 5. (qbeg_j - qbeg_i) - len_i < max_chain_gap
+	// 6. (rbeg_j - rbeg_i) - len_i < max_chain_gap
+	// 7. |(qbeg_j - qbeg_i) - (rbeg_j - rbeg_i)| <= bandwidth_gap
 	int max_chain_gap = d_opt->max_chain_gap;
 	int bandwidth_gap = d_opt->w;
 	int64_t l_pac = d_bns->l_pac;
@@ -2065,14 +2075,13 @@ __global__ void SEEDCHAINING_chain_kernel(
 			S_preceding_seed[j] = -1; continue;
 		} else S_preceding_seed[j] = j;
 		int64_t rbeg_j = seed_a[j].rbeg;
+		// find lower bound for rbeg_i, lower value than which seeds cannot chain to seed j
 		int64_t rbeg_lower_bound = seed_a[j].rbeg - l_seq - max_chain_gap;
 		int seedID_lower_bound = search_lower_bound_rbeg(seed_a, j, rbeg_lower_bound);
 		for (int i=j-1; i>=seedID_lower_bound; i--){
-			// test condition 1
-			if (seed_a[i].rid != seed_a[j].rid) break;	// no need to test further
-			// test condition 2
 			int64_t rbeg_i = seed_a[i].rbeg;
-			if (rbeg_i<l_pac && rbeg_j>=l_pac) break; // no need to test further
+			// test condition 1 && 2
+			if (seed_a[i].rid != seed_a[j].rid || (rbeg_i<l_pac && rbeg_j>=l_pac)) break;	// seeds  are not on a same chromosome or one is circular other is linear and other is linear
 			// condition 4 is already satisfied by the lower bound
 			// test conditions 3, 5-7
 			if (seed_a[j].qbeg >= seed_a[i].qbeg &&
@@ -2082,8 +2091,9 @@ __global__ void SEEDCHAINING_chain_kernel(
 				(rbeg_j-rbeg_i) - (seed_a[j].qbeg-seed_a[i].qbeg) <= bandwidth_gap)
 			{
 				S_preceding_seed[j] = i;
+				// mistake again here, need atomic for suceeding seed
+				
 				atomicMin(&S_suceeding_seed[i], j);
-				S_suceeding_seed[i] = j;
 				break;	// stop at the nearest preceding seed
 			}
 		}
