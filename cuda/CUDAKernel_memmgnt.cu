@@ -65,29 +65,25 @@ __host__ void U_CUDAResetBufferPool(void* d_buffer_pools, cudaStream_t stream){
 	}
 }
 __host__ void CUDAResetBufferPool(void* d_buffer_pools, cudaStream_t stream){
-	// copy the array of pool pointers to host using pinned host memory
-	void** h_pools = NULL;
-	gpuErrchk( cudaMallocHost((void**)&h_pools, NBUFFERPOOLS * sizeof(void*)) );
-	gpuErrchk( cudaMemcpyAsync(h_pools, d_buffer_pools, NBUFFERPOOLS * sizeof(void*), cudaMemcpyDeviceToHost, stream) );
-	// ensure the device->host copy completes before using h_pools on the host
-	gpuErrchk( cudaStreamSynchronize(stream) );
+	// first coppy the array of pool pointers to host
+	void** h_pools;
+	h_pools = (void**)malloc(NBUFFERPOOLS*sizeof(void*));
+	gpuErrchk( cudaMemcpyAsync(h_pools, d_buffer_pools, NBUFFERPOOLS*sizeof(void*), cudaMemcpyDeviceToHost, stream) );
 
-	// prepare pinned host copy of pool info for async host->device copies
-	CUDAKernel_mem_info* h_pool_info = NULL;
-	gpuErrchk( cudaMallocHost((void**)&h_pool_info, sizeof(CUDAKernel_mem_info)) );
-	h_pool_info->current_offset = sizeof(CUDAKernel_mem_info);
-	h_pool_info->end_offset = (unsigned)POOLSIZE;
-
-	// schedule asynchronous copies of the pool info to each device pool
+	// reset memory info at the head of each pool
+	CUDAKernel_mem_info d_pool_info;		// intermediate data on host
 	for (int i = 0; i < NBUFFERPOOLS; i++){
-		void* pool_addr = h_pools[i];
-		if (pool_addr == NULL) continue;
-		gpuErrchk( cudaMemcpyAsync(pool_addr, h_pool_info, sizeof(CUDAKernel_mem_info), cudaMemcpyHostToDevice, stream) );
+		// find address of the start of the pool
+		void* pool_addr = ((void**)h_pools)[i];
+		// set base offset
+		d_pool_info.current_offset = sizeof(CUDAKernel_mem_info);
+		// set limit of the pool
+		d_pool_info.end_offset = (unsigned)POOLSIZE;
+		// copy d_pool_info to the start of the pool
+		gpuErrchk( cudaMemcpyAsync(pool_addr, &d_pool_info, sizeof(CUDAKernel_mem_info), cudaMemcpyHostToDevice, stream) );
 	}
-	// wait for all copies to finish before freeing pinned host memory
-	gpuErrchk( cudaStreamSynchronize(stream) );
-	gpuErrchk( cudaFreeHost(h_pool_info) );
-	gpuErrchk( cudaFreeHost(h_pools) );
+
+	free(h_pools);
 }
 
 __device__ void* CUDAKernelSelectPool(void* d_buffer_pools, int i){
