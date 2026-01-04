@@ -2038,7 +2038,7 @@ __global__ void SEEDCHAINING_chain_kernel(
 {
 	// seqID = blockIdx.x
 	int n_seeds = d_seq_seeds[blockIdx.x].n;
-	if(n_seeds >= SORTSEEDSHIGH_MAX_NSEEDS)
+	if(n_seeds > SORTSEEDSHIGH_MAX_NSEEDS)
 	{
 		printf("Error: number of seeds exceed maximum limit (%d) for chaining. SeqID=%d, n_seeds=%d\n", SORTSEEDSHIGH_MAX_NSEEDS, blockIdx.x, n_seeds);
 		//__trap();
