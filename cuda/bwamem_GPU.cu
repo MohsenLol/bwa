@@ -1897,6 +1897,7 @@ __global__ void SEEDCHAINING_sortSeeds_low_kernel(
 	int64_t thread_keys[SORTSEEDSLOW_NKEYS_THREAD];	// this will contain rbeg
 	int thread_values[SORTSEEDSLOW_NKEYS_THREAD];	// this will contain original seedID
 	// load data
+	#pragma unroll
 	for (int i=0; i<SORTSEEDSLOW_NKEYS_THREAD; i++){
 		int seedID = threadIdx.x*SORTSEEDSLOW_NKEYS_THREAD+i;
 		// default is invalid data
@@ -1913,7 +1914,7 @@ __global__ void SEEDCHAINING_sortSeeds_low_kernel(
 		}
 	}
 
-	// Specialize BlockRadixSort
+	// Specialize BucketRadixSort
 	typedef cub::BlockRadixSort<int64_t, SORTSEEDSLOW_BLOCKDIMX, SORTSEEDSLOW_NKEYS_THREAD, int> BlockRadixSort;
 	// Allocate shared mem
 	__shared__ typename BlockRadixSort::TempStorage temp_storage;
@@ -1928,6 +1929,7 @@ __global__ void SEEDCHAINING_sortSeeds_low_kernel(
 	}
 	__syncthreads();
 	mem_seed_t *new_seed_a = S_new_seed_a[0];
+	#pragma unroll
 	for (int i=0; i<SORTSEEDSLOW_NKEYS_THREAD; i++){
 		int seedID = threadIdx.x*SORTSEEDSLOW_NKEYS_THREAD+i;
 		if (seedID>=n_seeds) break;
@@ -1956,6 +1958,7 @@ __global__ void SEEDCHAINING_sortSeeds_high_kernel(
 	int64_t thread_keys[SORTSEEDSHIGH_NKEYS_THREAD];	// this will contain rbeg
 	int thread_values[SORTSEEDSHIGH_NKEYS_THREAD];	// this will contain original seedID
 	// load data
+	#pragma unroll
 	for (int i=0; i<SORTSEEDSHIGH_NKEYS_THREAD; i++){
 		int seedID = threadIdx.x*SORTSEEDSHIGH_NKEYS_THREAD+i;
 		if (seedID < n_seeds) // load true data
@@ -1985,6 +1988,7 @@ __global__ void SEEDCHAINING_sortSeeds_high_kernel(
 	}
 	__syncthreads();
 	mem_seed_t *new_seed_a = S_new_seed_a[0];
+	#pragma unroll
 	for (int i=0; i<SORTSEEDSHIGH_NKEYS_THREAD; i++){
 		int seedID = threadIdx.x*SORTSEEDSHIGH_NKEYS_THREAD+i;
 		if (seedID>=n_seeds) break;
@@ -1995,6 +1999,7 @@ __global__ void SEEDCHAINING_sortSeeds_high_kernel(
 		// copy to new array
 		new_seed_a[seedID] = seed_a[thread_values[i]];
 	}
+	//!!! race condition
 	d_seq_seeds[blockIdx.x].a = new_seed_a;
 }
 
