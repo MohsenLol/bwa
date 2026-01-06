@@ -2373,52 +2373,52 @@ __global__ void CHAINFILTERING_filter_kernel(
 		}
 	}
 	__syncthreads();
-	// GET_KEPT(i) = 0 (drop) 1 (i dont know) 2 (keep)
+	// GET_KEPT(i) = 0 (drop) 1 (i dont know) 3 (keep)
 	// pairwise compare algorithm
 	// drop chain if overlapped with earliar(more score) chains
 	#pragma unroll
 	for (int k=0; k<n_iter; k++){	// each thread anchor on n_iter chains
+		uint8_t keepi = (uint8_t)GET_KEPT(i);
+		uing8_t keepj = 0;
 		i = k*blockDim.x+threadIdx.x; // anchor chain
-		while(GET_KEPT(i)==1) {
+		while(keepi==1) {
 			for (j=0; j<i; j++){
-				if (GET_KEPT(j)==0) continue; 	// chain already drop, don't compare with it
-				// do comparisons
-				int b_max = max(chn_beg_SM[j], chn_beg_SM[i]);
-				int e_min = min(chn_end_SM[i], chn_end_SM[j]);
-				if (e_min > b_max && (!GET_IS_ALT(i) || GET_IS_ALT(j))) { // have overlap; don't consider ovlp where the kept chain is ALT while the current chain is primary
+				keepj = GET_KEPT(j);
+				if (keepj==0) continue; 	// chain already drop, don't compare with it
+				// do comparisons (naive overlap detection)
+				int overlap = min(chn_end_SM[i], chn_end_SM[j]) - max(chn_beg_SM[j], chn_beg_SM[i]);
+				if ((overlap > 0) && (!GET_IS_ALT(i) || GET_IS_ALT(j))) { // have overlap; don't consider ovlp where the kept chain is ALT while the current chain is primary
 					int li = chn_end_SM[i] - chn_beg_SM[i];
 					int lj = chn_end_SM[j] - chn_beg_SM[j];
-					int min_l = li < lj? li : lj;
-					if (e_min - b_max >= min_l * opt->mask_level && min_l < opt->max_chain_gap) { // significant overlap
-						// if (a[j].first < 0) a[j].first = i; // keep the first shadowed hit s.t. mapq can be more accurate
-						if (chn_w_SM[i]<chn_w_SM[j]*opt->drop_ratio && chn_w_SM[j]-chn_w_SM[i]>=opt->min_seed_len<<1){
-							if (GET_KEPT(j)==1) break;	// we don't know final decision yet, wait for next iteration
-							else{	// kept[i]=3, definitely drop chain i
-								SET_KEPT(i, 0);
-								break;
-							} 
+					int min_l = min(li, lj);
+					// and two conditions together
+					// GET_KEPT(j) is 1 or 3 in this state => drop if GET_KEPT(j) == 3(permanently keep)
+					if ( (overlap >= min_l * opt->mask_level && min_l < opt->max_chain_gap) &&
+				 		 (chn_w_SM[i]<chn_w_SM[j]*opt->drop_ratio && chn_w_SM[j]-chn_w_SM[i]>=opt->min_seed_len<<1) ){	//significant overlap
+							keepi =  (uint8_t)(keepj != 3);	// 0 or 1													 
+							break;
 						}
 					}
 				}
 			}
-			if (j==i)	// this means that chain i not significant overlap with any
-				SET_KEPT(i, 3);
-		} // keep looping until the kept outcome is certain
-	}
+			// this means that chain i not significant overlap with any
+			SET_KEPT(i, (j==i) ? 3 : keepi);
+	} // keep looping until the kept outcome is certain
 	__syncthreads();
 
 	// do accounting of which chain is kept 
 	uint16_t* new_n_chn = chn_w_SM;		// chn_w_SM  now hold new n_chn
 	uint16_t* old_index = chn_beg_SM;	// chn_beg_SM now hold index to the old chain
 	mem_chain_t** new_a_SM = (mem_chain_t**)chn_end_SM;	// chn_end_SM now hold pointer to new_a
+	// save all saved indexes
 	if (threadIdx.x==0){
 		new_n_chn[0] = 0;							
-		for (j=0; j<n_chn; j++){
+		for (int j=0; j<n_chn; j++){
 			if (GET_KEPT(j)==3){
 				old_index[new_n_chn[0]++] = j;
 			}
 		}
-		void* d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, blockIdx.x%32);
+		void* d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, blockIdx.x & 31);
 		*new_a_SM = (mem_chain_t*)CUDAKernelMalloc(d_buffer_ptr, new_n_chn[0]*sizeof(mem_chain_t), 8);
 	}
 	__syncthreads();
