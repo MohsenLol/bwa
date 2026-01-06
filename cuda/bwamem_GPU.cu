@@ -2388,11 +2388,11 @@ __global__ void CHAINFILTERING_filter_kernel(
 				keepj = GET_KEPT(j);
 				if (keepj==0) continue; 	// chain already drop, don't compare with it
 				// do comparisons (naive overlap detection)
-				int overlap = min(chn_end_SM[i], chn_end_SM[j]) - max(chn_beg_SM[j], chn_beg_SM[i]);
+				int overlap = ::min(chn_end_SM[i], chn_end_SM[j]) - ::max(chn_beg_SM[j], chn_beg_SM[i]);
 				if ((overlap > 0) && (!GET_IS_ALT(i) || GET_IS_ALT(j))) { // have overlap; don't consider ovlp where the kept chain is ALT while the current chain is primary
 					int li = chn_end_SM[i] - chn_beg_SM[i];
 					int lj = chn_end_SM[j] - chn_beg_SM[j];
-					int min_l = min(li, lj);
+					int min_l = ::min(li, lj);
 					// and two conditions together
 					// GET_KEPT(j) is 1 or 3 in this state => drop if GET_KEPT(j) == 3(permanently keep)
 					if ( (overlap >= min_l * opt->mask_level && min_l < opt->max_chain_gap) &&
