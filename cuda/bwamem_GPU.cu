@@ -2287,7 +2287,7 @@ __global__ void CHAINFILTERING_sortChains_kernel(mem_chain_v* d_chains, void* d_
 	uint32_t thread_keys[NKEYS_EACH_THREAD];	// weight array on each thread
 	int thread_values[NKEYS_EACH_THREAD];		// chain's index array before sorting
 	{
-		int base_thread = threadIdx.x*NKEYS_EACH_THREAD
+		int base_thread = threadIdx.x*NKEYS_EACH_THREAD;
 		#pragma unroll
 		for (int k=0; k<NKEYS_EACH_THREAD; k++){
 			thread_values[k] = base_thread+k;
@@ -2347,7 +2347,7 @@ __global__ void CHAINFILTERING_filter_kernel(
 	mem_chain_t* a = d_chains[blockIdx.x].a;	// chains vector
 	if (n_chn == 0) return; // no need to filter
 	if (threadIdx.x>=n_chn) return;	// don't run padded threads
-	if (n_chn>MAX_N_CHAIN) n_chn = MAX_N_CHAIN;
+	n_chn = min(MAX_N_CHAIN, n_chn); // cap n_chn to MAX_N_CHAIN
 
 	extern __shared__ int SM[];		// dynamic shared mem
 	uint16_t* chn_beg_SM = (uint16_t*)SM; 	// start of chains
@@ -3658,6 +3658,7 @@ void mem_align_GPU(process_data_t *process_data)
 
 	/* filter chains */
 	if (bwa_verbose>=4) fprintf(stderr, "[M::%-25s] **** [CHAIN FILTERING]: Launch kernel mem_chain_flt ...\n", __func__);
+	//filters and prunes MEM chains on the GPU—one block per read—using shared memory to drop weak or redundant chains before alignment extension.
 	CHAINFILTERING_filter_kernel <<< n_seqs, CHAIN_FLT_BLOCKSIZE, MAX_N_CHAIN*(3*sizeof(uint16_t)+sizeof(uint8_t)), process_stream >>> (
 			d_opt, 
 			d_chains, 	// input and output
