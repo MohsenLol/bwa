@@ -75,26 +75,27 @@ __device__ static int test_and_merge(const mem_opt_t *opt, int64_t l_pac, mem_ch
 
 #define chn_beg(ch) ((ch).seeds->qbeg)
 #define chn_end(ch) ((ch).seeds[(ch).n-1].qbeg + (ch).seeds[(ch).n-1].len)
-
 __device__ int mem_chain_weight(const mem_chain_t *c)
 {
-	int64_t end;
-	int j, w = 0, tmp;
-	for (j = 0, end = 0; j < c->n; ++j) {
-		const mem_seed_t *s = &c->seeds[j];
-		if (s->qbeg >= end) w += s->len;
-		else if (s->qbeg + s->len > end) w += s->qbeg + s->len - end;
-		end = end > s->qbeg + s->len? end : s->qbeg + s->len;
-	}
-	tmp = w; w = 0;
-	for (j = 0, end = 0; j < c->n; ++j) {
-		const mem_seed_t *s = &c->seeds[j];
-		if (s->rbeg >= end) w += s->len;
-		else if (s->rbeg + s->len > end) w += s->rbeg + s->len - end;
-		end = end > s->rbeg + s->len? end : s->rbeg + s->len;
-	}
-	w = w < tmp? w : tmp;
-	return w < 1<<30? w : (1<<30)-1;
+    int64_t endq = 0, endr = 0;
+    int wq = 0, wr = 0;
+
+    for (int j = 0; j < c->n; ++j) {
+        const mem_seed_t *s = &c->seeds[j];
+
+        // Query coverage
+        int64_t qend = (int64_t)s->qbeg + s->len;
+        wq += max((int64_t)0, qend - max(endq, (int64_t)s->qbeg));
+        endq = max(endq, qend);
+
+        // Reference coverage
+        int64_t rend = (int64_t)s->rbeg + s->len;
+        wr += max((int64_t)0, rend - max(endr, (int64_t)s->rbeg));
+        endr = max(endr, rend);
+    }
+
+    int wfinal = min(wq, wr);
+    return wfinal < (1<<30) ? wfinal : (1<<30)-1;
 }
 
 /*********************************
@@ -2256,12 +2257,16 @@ __global__ void mem_chain_kernel(
 #define MAX_N_CHAIN 		2048
 #define NKEYS_EACH_THREAD	16
 #define SORTCHAIN_BLOCKDIMX	128
+// compute scores(weigts) of chains and sort chains by weights
+
+// typedef struct { int n, m; mem_chain_t *a;  } mem_chain_v;
+// d_chains : array of mem_chain_v, each mem_chain_v corresponds to one read	
 __global__ void CHAINFILTERING_sortChains_kernel(mem_chain_v* d_chains, void* d_buffer_pools){
 // if (blockIdx.x!=3921) return;
 	// int seqID = blockIdx.x;
 	int n_chn = d_chains[blockIdx.x].n;
 	if (n_chn==0) return;
-	void* d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, blockIdx.x%32);
+	void* d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, blockIdx.x & 31);
 	mem_chain_t* a = d_chains[blockIdx.x].a;	// array of chains
 
 	extern __shared__ int SM[];			// shared mem, pre-allocated
@@ -3635,6 +3640,8 @@ void mem_align_GPU(process_data_t *process_data)
 	/* ----------------------- Third part of pipeline: Filtering chains --------------------------------------*/
 	/* sort chains */
 	if (bwa_verbose>=4) fprintf(stderr, "[M::%-25s] **** [CHAIN FILTERING]: sorting chains ...\n", __func__);
+	// sort chains by score in descending order 
+	// SORTCHAIN_BLOCKDIMX threads for each read
 	CHAINFILTERING_sortChains_kernel <<< n_seqs, SORTCHAIN_BLOCKDIMX, MAX_N_CHAIN*2*sizeof(uint16_t)+sizeof(mem_chain_t**), process_stream >>> (
 		d_chains, d_buffer_pools);
 	gpuErrchk2( cudaPeekAtLastError());
