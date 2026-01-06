@@ -14,6 +14,8 @@
 #include "streams.cuh"
 #include "batch_config.h"
 #include "../kmers_index/hashKMerIndex.h"
+#include <cuda_runtime.h>
+
 #include <chrono>
 using namespace std::chrono;
 #include <fstream>
@@ -2525,6 +2527,7 @@ __global__ void mem_chain_flt_kernel(const mem_opt_t *opt,
 	}
 	d_chains[d_sorted_seqids[blockIdx.x*blockDim.x + threadIdx.x]].n = k;
 }
+// For every read, the kernel retrieves its chain list and iterates through each chain. It recomputes the Smith–Waterman score for every seed using mem_seed_sw, discards seeds whose scores fall below the computed threshold, and compacts the surviving seeds back into the chain in place. The result is a per‑read, per‑chain filtering pass that retains only high‑scoring seeds.
 
 __global__ void CHAINFILTERING_flt_chained_seeds_kernel(
 	const mem_opt_t *d_opt, const bntseq_t *d_bns, const uint8_t *d_pac, const bseq1_t *d_seqs,
@@ -2535,7 +2538,7 @@ __global__ void CHAINFILTERING_flt_chained_seeds_kernel(
 {
 	int i = blockIdx.x*blockDim.x + threadIdx.x;		// ID of the read to process
 	if (i>=n) return;
-	void* d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, threadIdx.x % 32);	// set buffer pool	
+	void* d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, threadIdx.x & 31);	// set buffer pool	
 	mem_chain_t* a = d_chains[i].a;
 	int n_chn = d_chains[i].n;
 	uint8_t* query = (uint8_t*)d_seqs[i].seq;
