@@ -2286,19 +2286,25 @@ __global__ void CHAINFILTERING_sortChains_kernel(mem_chain_v* d_chains, void* d_
 	__syncthreads();
 	uint32_t thread_keys[NKEYS_EACH_THREAD];	// weight array on each thread
 	int thread_values[NKEYS_EACH_THREAD];		// chain's index array before sorting
-	int base_thread = threadIdx.x*NKEYS_EACH_THREAD
-	#pragma unroll
-	for (int k=0; k<NKEYS_EACH_THREAD; k++){
-		thread_values[k] = base_thread+k;
-		thread_keys[k] = w[base_thread+k];
+	{
+		int base_thread = threadIdx.x*NKEYS_EACH_THREAD
+		#pragma unroll
+		for (int k=0; k<NKEYS_EACH_THREAD; k++){
+			thread_values[k] = base_thread+k;
+			thread_keys[k] = w[base_thread+k];
+		}
 	}
 	__syncthreads();
 	// sort weights
 	typedef cub::BlockRadixSort<uint32_t, SORTCHAIN_BLOCKDIMX, NKEYS_EACH_THREAD, int> BlockRadixSort;
 	BlockRadixSort().SortDescending(thread_keys, thread_values);
 	// transfer sorted index array (thread_values) to shared mem
-	for (int k=0; k<NKEYS_EACH_THREAD; k++){
-		new_i[threadIdx.x*NKEYS_EACH_THREAD+k] = thread_values[k];
+	{
+		int base_thread = threadIdx.x*NKEYS_EACH_THREAD;
+		#pragma unroll
+		for (int k=0; k<NKEYS_EACH_THREAD; k++){
+		new_i[base_thread+k] = thread_values[k];
+		}
 	}
 
 	// export output
@@ -2308,6 +2314,7 @@ __global__ void CHAINFILTERING_sortChains_kernel(mem_chain_v* d_chains, void* d_
 	}
 	__syncthreads();
 	mem_chain_t* new_a = *new_a_SM;
+	#pragma unroll
 	for (int k=0; k<n_iter; k++){
 		int i = k*blockDim.x + threadIdx.x;	// chainID to work on
 		if (i<n_chn){
