@@ -2286,9 +2286,11 @@ __global__ void CHAINFILTERING_sortChains_kernel(mem_chain_v* d_chains, void* d_
 	__syncthreads();
 	uint32_t thread_keys[NKEYS_EACH_THREAD];	// weight array on each thread
 	int thread_values[NKEYS_EACH_THREAD];		// chain's index array before sorting
+	int base_thread = threadIdx.x*NKEYS_EACH_THREAD
+	#pragma unroll
 	for (int k=0; k<NKEYS_EACH_THREAD; k++){
-		thread_values[k] = threadIdx.x*NKEYS_EACH_THREAD+k;
-		thread_keys[k] = w[threadIdx.x*NKEYS_EACH_THREAD+k];
+		thread_values[k] = base_thread+k;
+		thread_keys[k] = w[base_thread+k];
 	}
 	__syncthreads();
 	// sort weights
