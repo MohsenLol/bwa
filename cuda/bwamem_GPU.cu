@@ -2402,7 +2402,7 @@ __global__ void CHAINFILTERING_filter_kernel(
 				}
 			}
 			// this means that chain i not significant overlap with any
-			SET_KEPT(i, (j==i) ? 3 : keepi);
+			SET_KEPT(i, (j==i) ? 3 : (int)keepi);
 	} // keep looping until the kept outcome is certain
 	__syncthreads();
 
