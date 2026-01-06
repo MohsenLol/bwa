@@ -2373,16 +2373,18 @@ __global__ void CHAINFILTERING_filter_kernel(
 		}
 	}
 	__syncthreads();
-
+	// GET_KEPT(i) = 0 (drop) 1 (i dont know) 2 (keep)
 	// pairwise compare algorithm
+	// drop chain if overlapped with earliar(more score) chains
+	#pragma unroll
 	for (int k=0; k<n_iter; k++){	// each thread anchor on n_iter chains
 		i = k*blockDim.x+threadIdx.x; // anchor chain
 		while(GET_KEPT(i)==1) {
 			for (j=0; j<i; j++){
 				if (GET_KEPT(j)==0) continue; 	// chain already drop, don't compare with it
 				// do comparisons
-				int b_max = chn_beg_SM[j] > chn_beg_SM[i]? chn_beg_SM[j] : chn_beg_SM[i];
-				int e_min = chn_end_SM[j] < chn_end_SM[i]? chn_end_SM[j] : chn_end_SM[i];
+				int b_max = max(chn_beg_SM[j], chn_beg_SM[i]);
+				int e_min = min(chn_end_SM[i], chn_end_SM[j]);
 				if (e_min > b_max && (!GET_IS_ALT(i) || GET_IS_ALT(j))) { // have overlap; don't consider ovlp where the kept chain is ALT while the current chain is primary
 					int li = chn_end_SM[i] - chn_beg_SM[i];
 					int lj = chn_end_SM[j] - chn_beg_SM[j];
