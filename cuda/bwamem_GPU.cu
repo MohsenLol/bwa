@@ -2379,7 +2379,7 @@ __global__ void CHAINFILTERING_filter_kernel(
 	#pragma unroll
 	for (int k=0; k<n_iter; k++){	// each thread anchor on n_iter chains
 		uint8_t keepi = (uint8_t)GET_KEPT(i);
-		uing8_t keepj = 0;
+		uint8_t keepj = 0;
 		i = k*blockDim.x+threadIdx.x; // anchor chain
 		while(keepi==1) {
 			for (j=0; j<i; j++){
