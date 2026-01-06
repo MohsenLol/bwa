@@ -2275,14 +2275,14 @@ __global__ void CHAINFILTERING_sortChains_kernel(mem_chain_v* d_chains, void* d_
 	uint16_t* new_i = (uint16_t*)&w[MAX_N_CHAIN]; // array of sorted chain index
 
 	// calculate weight of each chain
-	int n_iter = MAX_N_CHAIN/SORTCHAIN_BLOCKDIMX;
-	for (int k=0; k<n_iter; k++){
-		int i = k*blockDim.x + threadIdx.x;	// chainID to work on
-		if (i<n_chn)
-			w[i] = mem_chain_weight(&a[i]);
-		else
-			w[i] = 0;
+	const int n_iter = MAX_N_CHAIN/SORTCHAIN_BLOCKDIMX;
+
+	#pragma unroll
+	for (int k = 0; k < n_iter; ++k) {
+		int i = k * blockDim.x + threadIdx.x;
+		w[i] = (i < n_chn) ? mem_chain_weight(&a[i]) : 0;
 	}
+
 	__syncthreads();
 	uint32_t thread_keys[NKEYS_EACH_THREAD];	// weight array on each thread
 	int thread_values[NKEYS_EACH_THREAD];		// chain's index array before sorting
