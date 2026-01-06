@@ -1701,7 +1701,8 @@ __global__ void SEEDCHAINING_filter_seeds_kernel(
 
 	// counter of valid seeds for each mem_a
 	__shared__ uint16_t S_nseeds[SEEDCHAINING_MAX_N_MEM];
-	int n_iter = SEEDCHAINING_MAX_N_MEM/WARPSIZE;
+	const int n_iter = SEEDCHAINING_MAX_N_MEM/WARPSIZE;
+	#pragma unroll
 	for (int i=0; i<n_iter; i++){
 		int memID = i*WARPSIZE + threadIdx.x;
 		if (memID>=n_mem) break;
@@ -1723,6 +1724,7 @@ __global__ void SEEDCHAINING_filter_seeds_kernel(
 	// add total n_seeds and allocate new mem_a with this total
 	// Sum32 is S_nseed[memID], number of valid seeds for this memID
 	int Sum = 0; int Sum32;
+	#pragma unroll
 	for (int i=0; i<n_iter; i++){
 		if (i*WARPSIZE>=n_mem) break;
 		int memID = i*WARPSIZE + threadIdx.x;
@@ -1764,8 +1766,8 @@ __global__ void SEEDCHAINING_filter_seeds_kernel(
 		while (S_nseeds[next_non0_memID]==0) next_non0_memID++;
 	}
 	// i cant understand this part
-	n_iter = Sum/WARPSIZE + 1;
-	for (int i=0; i<n_iter; i++){
+	int n_iter2 = Sum/WARPSIZE + 1;
+	for (int i=0; i<n_iter2; i++){
 		int seedID = i*WARPSIZE + threadIdx.x;
 		if (seedID>=Sum) break;
 		while (cumulative_total+S_nseeds[memID]<=seedID){
@@ -2360,7 +2362,6 @@ __global__ void CHAINFILTERING_filter_kernel(
 	// load data in SM
 	
 	n_iter = (n_chn + blockDim.x - 1) / blockDim.x;
-	#pragma unroll
 	for (int k=0; k<n_iter; k++){
 		int i = k*blockDim.x+threadIdx.x; // chainID to work on
 		if (i<n_chn){
@@ -2378,7 +2379,6 @@ __global__ void CHAINFILTERING_filter_kernel(
 	// GET_KEPT(i) = 0 (drop) 1 (i dont know) 3 (keep)
 	// pairwise compare algorithm
 	// drop chain if overlapped with earliar(more score) chains
-	#pragma unroll
 	for (int k=0; k<n_iter; k++){	// each thread anchor on n_iter chains
 		uint8_t keepi = (uint8_t)GET_KEPT(i);
 		uint8_t keepj = 0;
@@ -2816,7 +2816,7 @@ __global__ void SMITHWATERMAN_postprocessing_kernel(
 
 	// filter out reference-overlapped alignments
 	__shared__ char S_kept_aln[MAX_N_ALN];	// array to keep track of which alignment to keep
-	int n_iter = ceil((float)n/blockDim.x);
+	int n_iter = (n + blockDim.x - 1) / blockDim.x;
 	for (int iter=0; iter<n_iter; iter++){
 		int i = iter*blockDim.x + threadIdx.x; // anchor point
 		if (i>=n) break;
