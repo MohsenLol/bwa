@@ -2357,7 +2357,7 @@ __global__ void CHAINFILTERING_filter_kernel(
 
 	// load data in SM
 	
-	const n_iter = (n_chn + blockDim.x - 1) / blockDim.x;
+	n_iter = (n_chn + blockDim.x - 1) / blockDim.x;
 	#pragma unroll
 	for (int k=0; k<n_iter; k++){
 		int i = k*blockDim.x+threadIdx.x; // chainID to work on
@@ -2425,7 +2425,7 @@ __global__ void CHAINFILTERING_filter_kernel(
 	// save to global data
 	n_chn = new_n_chn[0];
 	mem_chain_t* new_a = *new_a_SM;
-	n_iter = ceil((float)n_chn/blockDim.x);
+	n_iter = (n_chn + blockDim.x - 1) / blockDim.x;
 	for (int k=0; k<n_iter; k++){
 		j = k*blockDim.x+threadIdx.x; // chainID to work on
 		if (j<n_chn)
