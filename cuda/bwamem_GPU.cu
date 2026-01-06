@@ -2356,16 +2356,19 @@ __global__ void CHAINFILTERING_filter_kernel(
 	uint8_t* chn_info_SM = (uint8_t*)&chn_w_SM[MAX_N_CHAIN]; // chains' kept and alt information
 
 	// load data in SM
-	n_iter = ceil((float)n_chn/blockDim.x);
+	
+	const n_iter = (n_chn + blockDim.x - 1) / blockDim.x;
+	#pragma unroll
 	for (int k=0; k<n_iter; k++){
-		i = k*blockDim.x+threadIdx.x; // chainID to work on
+		int i = k*blockDim.x+threadIdx.x; // chainID to work on
 		if (i<n_chn){
 			chn_beg_SM[i] = chn_beg(a[i]);
 			chn_end_SM[i] = chn_end(a[i]);
 			chn_w_SM[i] = a[i].w;
 			chn_info_SM[i] = 0;
-			if (i!=0) SET_KEPT(i,1);	// kept = 1
-			else SET_KEPT(i,3);			// chain 0 always kept
+			//alyas kip zero branch
+			SET_KEPT(i, 1 + 2 * (i == 0));
+			// chain 0 always kept
 			SET_IS_ALT(i, a[i].is_alt);
 		}
 	}
