@@ -3635,6 +3635,7 @@ void mem_align_GPU(process_data_t *process_data)
 	/* ----------------------- First part of pipeline: find SMEM intervals --------------------------------------*/
 
 	if (bwa_verbose>=4) fprintf(stderr, "[M::%-25s] **** [MEM FINDING]: collect MEM intervals ...\n", __func__);
+
 	MEMFINDING_collect_intv_kernel <<< n_seqs, 320, 512, process_stream >>> (
 			d_opt, d_bwt, d_seqs,
 			d_aux,	// output
