@@ -1339,15 +1339,8 @@ __global__ void MEMFINDING_collect_intv_kernel(
 			a->mem.a = 0;
 		return;
 	}
-	if(l_seq > 512)
-	{
-		if(threadIdx.x==0)
-		{
-			printf("Error: read length %d exceeds the max limit 512\n", l_seq);
-			__trap();
-		}
-		return;
-	}
+	if(threadIdx.x == 0)
+		printf("Processing read %d of length %d\n", blockIdx.x, l_seq);
 	// cache read in shared mem
 	extern __shared__ int SM[];
 	uint8_t *S_seq = (uint8_t*)SM;
