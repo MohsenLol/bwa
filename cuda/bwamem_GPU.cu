@@ -1743,19 +1743,18 @@ __global__ void SEEDCHAINING_filter_seeds_kernel(
 		if (memID>=n_mem) break;
 		bwtint_t info = mem_a[memID].info;
 		bwtint_t occ  = mem_a[memID].x[2];
-		if (mem_a_memID.info==0) {S_nseeds[memID] = 0; continue;}	// bad seed
-		if (memID>0 && (uint32_t)info==(uint32_t)info) S_nseeds[memID] = 0;	// duplicate
+		bwtint_t info_past = (memID == 0) ? info + 1 : mem_a[memID - 1].info;
+		if ((info==0) || (uint32_t)info==(uint32_t)info_past)  {occ = 0;}	// bad seed or duplicate seed
 		else {
 			// mem_a[memID].x[2]: number of seeds in this interval
 			if (occ > max_occ) {
-				S_nseeds[memID] = (uint16_t)max_occ;
-				uint64_t info = mem_a_memID.info;
-				// some shity fucked optimization for calculation length from stored [start:end) (end-start)
+				occ = (uint16_t)max_occ;
+				// optimization for calculation length from stored [start:end) (end-start)
 				uint32_t length = (uint32_t)info - (uint32_t)(info>>32);
 				atomicAdd(&S_l_rep[0], length);
 			}
-			else S_nseeds[memID] = (uint16_t)occ;
 		}
+		S_nseeds[memID] = (uint16_t)occ;
 	}
 	__syncthreads();
 	// add total n_seeds and allocate new mem_a with this total
