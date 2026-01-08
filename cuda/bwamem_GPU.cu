@@ -1343,6 +1343,7 @@ __global__ void MEMFINDING_collect_intv_kernel(
 	{
 			// cache read in shared mem
 		const int LENGTH = 100;
+		const int MIN_SEED = 19;
 		extern __shared__ int SM[];
 		uint8_t *S_seq = (uint8_t*)SM;
 		#pragma unroll
@@ -1354,10 +1355,10 @@ __global__ void MEMFINDING_collect_intv_kernel(
 		if (threadIdx.x == 0){
 			void* d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, blockIdx.x & 31);
 			// min length of seed should be min_seed_len => we truncated (min_seed_len-1) positions from the end
-			S_mem_a[0] = (bwtintv_t*)CUDAKernelMalloc(d_buffer_ptr, (LENGTH-min_seed_len+1)*sizeof(bwtintv_t), 8);
+			S_mem_a[0] = (bwtintv_t*)CUDAKernelMalloc(d_buffer_ptr, (LENGTH-MIN_SEED+1)*sizeof(bwtintv_t), 8);
 			// n : number of intervals allocated
 			// m : maximum number of intervals allocated
-			a->mem.n = a->mem.m = LENGTH-min_seed_len+1;
+			a->mem.n = a->mem.m = LENGTH-MIN_SEED+1;
 			a->mem.a = S_mem_a[0];
 		}
 		__syncthreads();
@@ -1366,10 +1367,9 @@ __global__ void MEMFINDING_collect_intv_kernel(
 		// positions higher than l_seq-min_seed_len would produce unqualified seds anyways
 		// iterate over positions in parallel upto (l_seq-min_seed_len)(min_len criteria)
 		#pragma unroll
-		for (j=threadIdx.x; j<=(LENGTH-min_seed_len); j+=blockDim.x){
+		for (j=threadIdx.x; j<=(LENGTH-MIN_SEED); j+=blockDim.x){
 			// find SMEMS starting at position j in the read
-
-			bwt_smem_right(d_bwt, LENGTH, S_seq, j, start_width, 0, min_seed_len, mem_a, d_kmerHashTab);
+			bwt_smem_right(d_bwt, LENGTH, S_seq, j, start_width, 0, MIN_SEED, mem_a, d_kmerHashTab);
 		}
 	}
 	else
