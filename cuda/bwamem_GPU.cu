@@ -1741,18 +1741,19 @@ __global__ void SEEDCHAINING_filter_seeds_kernel(
 	for (int i=0; i<n_iter; i++){
 		int memID = i*WARPSIZE + threadIdx.x;
 		if (memID>=n_mem) break;
-		if (mem_a[memID].info==0) {S_nseeds[memID] = 0; continue;}	// bad seed
-		if (memID>0 && (uint32_t)mem_a[memID].info==(uint32_t)mem_a[memID-1].info) S_nseeds[memID] = 0;	// duplicate
+		bwtintv_t mem_a_memID = mem_a[memID];
+		if (mem_a_memID.info==0) {S_nseeds[memID] = 0; continue;}	// bad seed
+		if (memID>0 && (uint32_t)mem_a_memID.info==(uint32_t)mem_a[memID-1].info) S_nseeds[memID] = 0;	// duplicate
 		else {
 			// mem_a[memID].x[2]: number of seeds in this interval
-			if (mem_a[memID].x[2] > max_occ) {
+			if (mem_a_memID.x[2] > max_occ) {
 				S_nseeds[memID] = (uint16_t)max_occ;
-				uint64_t info = mem_a[memID].info;
+				uint64_t info = mem_a_memID.info;
 				// some shity fucked optimization for calculation length from stored [start:end) (end-start)
 				uint32_t length = (uint32_t)info - (uint32_t)(info>>32);
 				atomicAdd(&S_l_rep[0], length);
 			}
-			else S_nseeds[memID] = (uint16_t)mem_a[memID].x[2];
+			else S_nseeds[memID] = (uint16_t)mem_a_memID.x[2];
 		}
 	}
 	__syncthreads();
