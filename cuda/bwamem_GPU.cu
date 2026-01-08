@@ -1334,6 +1334,7 @@ __global__ void MEMFINDING_collect_intv_kernel(
 	l_seq  = d_seqs[blockIdx.x].l_seq;	// read length
 	smem_aux_t* a = &d_aux[blockIdx.x];	// aux output for this read
 	int min_seed_len = d_opt->min_seed_len;
+	int MIN_SEED = min_seed_len;
 	if ((threadIdx.x == 0) && (l_seq < min_seed_len)) { 	// if the query is shorter than the seed length, no match
 			a->mem.n = a->mem.m = 0;
 			a->mem.a = 0;
@@ -1343,7 +1344,6 @@ __global__ void MEMFINDING_collect_intv_kernel(
 	{
 			// cache read in shared mem
 		const int LENGTH = 100;
-		const int MIN_SEED = 19;
 		extern __shared__ int SM[];
 		uint8_t *S_seq = (uint8_t*)SM;
 		#pragma unroll
@@ -1356,6 +1356,7 @@ __global__ void MEMFINDING_collect_intv_kernel(
 			void* d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, blockIdx.x & 31);
 			// min length of seed should be min_seed_len => we truncated (min_seed_len-1) positions from the end
 			S_mem_a[0] = (bwtintv_t*)CUDAKernelMalloc(d_buffer_ptr, (LENGTH-MIN_SEED+1)*sizeof(bwtintv_t), 8);
+			//printf("size is %d ", sizeof(bwtintv_t));
 			// n : number of intervals allocated
 			// m : maximum number of intervals allocated
 			a->mem.n = a->mem.m = LENGTH-MIN_SEED+1;
