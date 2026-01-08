@@ -1334,7 +1334,7 @@ __global__ void MEMFINDING_collect_intv_kernel(
 	l_seq  = d_seqs[blockIdx.x].l_seq;	// read length
 	smem_aux_t* a = &d_aux[blockIdx.x];	// aux output for this read
 	int min_seed_len = d_opt->min_seed_len;
-	if ((l_seq < min_seed_len) && (threadIdx.x == 0)){ 	// if the query is shorter than the seed length, no match
+	if ((threadIdx.x == 0) && (l_seq < min_seed_len)) { 	// if the query is shorter than the seed length, no match
 			a->mem.n = a->mem.m = 0;
 			a->mem.a = 0;
 		return;
