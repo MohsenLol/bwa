@@ -1339,7 +1339,15 @@ __global__ void MEMFINDING_collect_intv_kernel(
 			a->mem.a = 0;
 		return;
 	}
-
+	if(l_seq > 512)
+	{
+		if(threadIdx.x==0)
+		{
+			printf("Error: read length %d exceeds the max limit 512\n", l_seq);
+			__trap();
+		}
+		return;
+	}
 	// cache read in shared mem
 	extern __shared__ int SM[];
 	uint8_t *S_seq = (uint8_t*)SM;
@@ -3600,6 +3608,7 @@ void mem_align_GPU(process_data_t *process_data)
 	/* ----------------------- First part of pipeline: find SMEM intervals --------------------------------------*/
 
 	if (bwa_verbose>=4) fprintf(stderr, "[M::%-25s] **** [MEM FINDING]: collect MEM intervals ...\n", __func__);
+
 	MEMFINDING_collect_intv_kernel <<< n_seqs, 320, 512, process_stream >>> (
 			d_opt, d_bwt, d_seqs,
 			d_aux,	// output
