@@ -1342,11 +1342,9 @@ __global__ void MEMFINDING_collect_intv_kernel(
 			a->mem.a = 0;
 		return;
 	}
-	if(l_seq == 100)
+	if(l_seq == LENGTH)
 	{
 			// cache read in shared mem	
-		__shared__ bwtintv_t* S_mem_a_ptr;
-		
 		uint8_t *S_seq = (uint8_t*)SM;
 		#pragma unroll
 		for (j=threadIdx.x; j<LENGTH; j+=blockDim.x)
