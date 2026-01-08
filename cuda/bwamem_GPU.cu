@@ -1427,7 +1427,6 @@ __global__ void MEMFINDING_collect_intv_kernel_try1(
 __global__ void PREPROCESS_convert_bit_encoding_kernel(const bseq1_t *d_seqs){
 	// readID = blockIdx.x
 	// for each read, use 32 threads to convert in parallel
-	__extern__ share
 	char *seq1 = d_seqs[blockIdx.x].seq; 	// get read from global mem
 	int l_seq  = d_seqs[blockIdx.x].l_seq;	// read length
 	if(l_seq >= 4)
