@@ -1771,7 +1771,7 @@ __global__ void SEEDCHAINING_filter_seeds_kernel(
 		Sum32 += __shfl_down_sync(0xffffffff, Sum32, 4);
 		Sum32 += __shfl_down_sync(0xffffffff, Sum32, 2);
 		Sum32 += __shfl_down_sync(0xffffffff, Sum32, 1);
-		Sum += Sum32;
+		Sum  = (threadIdx.x==0) ? Sum32 + Sum : Sum;
 	}	
 	// now thread 0 has the correct Sum, allocate new mem_a on thread 0
 	__shared__ uint16_t S_total_nseeds[1];
