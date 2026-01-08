@@ -1353,7 +1353,7 @@ __global__ void MEMFINDING_collect_intv_kernel(
 		// allocate memory for SMEM intervals
 		__shared__ bwtintv_t* S_mem_a[1];
 		if (threadIdx.x == 0){
-			
+			printf("Using fixed length kernel for length %d\n", LENGTH);
 			const size_t ALIGN  = alignof(bwtintv_t);
 			const size_t MIS    = LENGTH % ALIGN;
 			const size_t MEM_A_OFFSET = LENGTH + ((ALIGN - MIS) * (MIS != 0));
@@ -1371,7 +1371,9 @@ __global__ void MEMFINDING_collect_intv_kernel(
 		#pragma unroll
 		for (j=threadIdx.x; j<=(LENGTH-MIN_SEED); j+=blockDim.x){
 			// find SMEMS starting at position j in the read
+			printf("Thread %d processing position %d\n", threadIdx.x, j);
 			bwt_smem_right(d_bwt, LENGTH, S_seq, j, start_width, 0, MIN_SEED, mem_a, d_kmerHashTab);
+			printf("Thread %d processing position END %d\n", threadIdx.x, j);
 		}
 	}
 	else
