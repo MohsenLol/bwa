@@ -21,7 +21,8 @@ using namespace std::chrono;
 #include <fstream>
 using namespace std;
 extern ofstream perf_profile_file;
-
+__device__ int minx;
+__device__ int maxx;
 __device__ __constant__ unsigned char d_nst_nt4_table[256] = {
 	4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4, 
 	4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4, 
@@ -1424,19 +1425,20 @@ __global__ void MEMFINDING_collect_intv_kernel_try1(
 	one block convert one read
 	readID = blockIdx.x
  */
-__global__ void PREPROCESS_convert_bit_encoding_kernel(const bseq1_t *d_seqs){
+__global__ void PREPROCESS_convert_bit_encoding_kernel(const bseq1_t *d_seq){
 	// readID = blockIdx.x
 	// for each read, use 32 threads to convert in parallel
-	__extern__ share
-	char *seq1 = d_seqs[blockIdx.x].seq; 	// get read from global mem
-	int l_seq  = d_seqs[blockIdx.x].l_seq;	// read length
-	if(l_seq >= 4)
-	{
-		printf("Haji !!!!!  \n"); __trap();
-	}
+	char *seq1 = d_seq[blockIdx.x].seq; 	// get read from global mem
+	int l_seq  = d_seq[blockIdx.x].l_seq;	// read length
+	minx = atomicMin(&minx, l_seq);
+	maxx = atomicMax(&maxx, l_seq);	
 	for (int j=threadIdx.x; j<l_seq; j+=blockDim.x){
 		// coalesced memory access: load 4 bytes at once if aligned
 		uint8_t b = seq1[j];
+		if(b <= 4)
+		{
+			printf("Haji !!!!!  \n"); __trap();
+		}
 		seq1[j] = (char)d_nst_nt4_table[b];
 	}
 }
@@ -3550,6 +3552,7 @@ __global__ void SAMGEN_concatenate_kernel(
 /*  main function for bwamem in GPU 
 	return to seqs.sam
  */
+
 void mem_align_GPU(process_data_t *process_data)
 {
 	int n_seqs = process_data->n_seqs;
@@ -3596,7 +3599,16 @@ void mem_align_GPU(process_data_t *process_data)
 	if (bwa_verbose>=4) fprintf(stderr, "[M::%-25s] **** [PREPROCESS ]: convert letters to bits ...\n", __func__);
 	// converting ACTG to 0,1,2,3
 	// for each read, use 32 threads to convert in parallel
+	
+	int minx_host = 0;
+	int maxx_host = INT_MAX;
+	cudaMemcpyToSymbol(&minx, &minx_host, sizeof(int), 0, cudaMemcpyHostToDevice);
+	cudaMemcpyToSymbol(&maxx, &maxx_host, sizeof(int), 0, cudaMemcpyHostToDevice);
 	PREPROCESS_convert_bit_encoding_kernel <<< n_seqs, 32, 0, process_stream >>> (d_seqs);
+	printf("After PREPROCESS_convert_bit_encoding_kernel\n");
+	cudaMemcpyFromSymbol(&minx_host, &minx, sizeof(int), 0, cudaMemcpyDeviceToHost);
+	cudaMemcpyFromSymbol(&maxx_host, &maxx, sizeof(int), 0, cudaMemcpyDeviceToHost);
+	fprintf(stderr, "minx: %d, maxx: %d\n", minx_host, maxx_host);
 	gpuErrchk2( cudaPeekAtLastError() );
 	gpuErrchk2( cudaStreamSynchronize(process_stream) );
 
