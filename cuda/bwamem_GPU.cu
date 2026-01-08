@@ -3649,7 +3649,7 @@ void mem_align_GPU(process_data_t *process_data)
 	// 	d_buffer_pools);
 	gpuErrchk2( cudaPeekAtLastError() );
 	gpuErrchk2( cudaStreamSynchronize(process_stream) );
-	exit(0);
+
 	/* ----------------------- Second part of pipeline: chaining seeds --------------------------------------*/
 	/* separate seeds from bwt intervals, filter out duplicated seeds */
 	if (bwa_verbose>=4)  fprintf(stderr, "[M::%-25s] **** [SEED CHAINING]: seeds separating and filtering ...\n", __func__);
