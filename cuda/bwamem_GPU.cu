@@ -1435,10 +1435,6 @@ __global__ void PREPROCESS_convert_bit_encoding_kernel(const bseq1_t *d_seqs){
 		// coalesced memory access: load 4 bytes at once if aligned
 		uint8_t b = seq1[j];
 		seq1[j] = (char)d_nst_nt4_table[b];
-		if(b < 4)
-	{
-		printf("Haji !!!!!  \n"); __trap();
-	}
 	}
 }
 
