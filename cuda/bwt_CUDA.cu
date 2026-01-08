@@ -106,7 +106,7 @@ __device__ __forceinline__ static bwtint_t bwt_occ_gpu(const bwt_t *bwt, bwtint_
 	((bwt)->cnt_table[(b)&0xff] + (bwt)->cnt_table[(b)>>8&0xff]		\
 	 + (bwt)->cnt_table[(b)>>16&0xff] + (bwt)->cnt_table[(b)>>24])
 
-__device__ static void bwt_occ4_gpu(const bwt_t *bwt, bwtint_t k, bwtint_t cnt[4])
+__device__ __forceinline__ static void bwt_occ4_gpu(const bwt_t *bwt, bwtint_t k, bwtint_t cnt[4])
 {
 	bwtint_t x;
 	uint32_t *p, tmp, *end;
@@ -132,7 +132,7 @@ cntx[z] : z = {A=0, C=1, G=2, T3=3}
 cntk[z] : count of z upto k-1
 cntl[z] : count of z upto l-1
 */
-__device__ static void bwt_2occ4_gpu(const bwt_t *bwt, bwtint_t k, bwtint_t l, bwtint_t cntk[4], bwtint_t cntl[4])
+__device__ __forceinline__ static void bwt_2occ4_gpu(const bwt_t *bwt, bwtint_t k, bwtint_t l, bwtint_t cntk[4], bwtint_t cntl[4])
 {
 	bwtint_t _k, _l;
 	_k = k - (k >= bwt->primary);
