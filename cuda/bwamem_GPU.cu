@@ -3725,6 +3725,7 @@ void mem_align_GPU(process_data_t *process_data)
 	auto duration = duration_cast<milliseconds>(stop-start);
 	perf_profile_file << duration.count() << ",";
     assert(false);
+    assert(false);
 	start = high_resolution_clock::now();
 	/* ----------------------- Fourth part of pipeline: Smith-Waterman extension --------------------------------------*/
 	/* pre-processing for SW extension: count number of seeds a read has, write seed_record to global mem, and allocate vector mem_alnreg_t for each read */
