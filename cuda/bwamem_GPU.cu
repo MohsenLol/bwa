@@ -3608,7 +3608,7 @@ void mem_align_GPU(process_data_t *process_data)
 	printf("After PREPROCESS_convert_bit_encoding_kernel\n");
 	cudaMemcpyFromSymbol(&minx_host, &minx, sizeof(int), 0, cudaMemcpyDeviceToHost);
 	cudaMemcpyFromSymbol(&maxx_host, &maxx, sizeof(int), 0, cudaMemcpyDeviceToHost);
-	printf("minx: %d, maxx: %d\n", minx_host, maxx_host);
+	fprintf(stderr, "minx: %d, maxx: %d\n", minx_host, maxx_host);
 	exit(1);
 	gpuErrchk2( cudaPeekAtLastError() );
 	gpuErrchk2( cudaStreamSynchronize(process_stream) );
