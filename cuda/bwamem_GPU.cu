@@ -1343,7 +1343,7 @@ __global__ void MEMFINDING_collect_intv_kernel(
 	{
 			// cache read in shared mem
 		const int LENGTH = 100;
-		const MIN_SEED = 19;
+		const int MIN_SEED = 19;
 		extern __shared__ int SM[];
 		uint8_t *S_seq = (uint8_t*)SM;
 		#pragma unroll
