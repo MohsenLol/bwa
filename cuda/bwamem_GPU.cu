@@ -1360,6 +1360,7 @@ __global__ void MEMFINDING_collect_intv_kernel(
 			// m : maximum number of intervals allocated
 			a->mem.n = a->mem.m = l_seq-min_seed_len+1;
 			a->mem.a = S_mem_a[0];
+			printf("bwtsize is %d\n", d_bwt->bwt_size);
 		}
 		__syncthreads();
 		bwtintv_t *mem_a = S_mem_a[0];
