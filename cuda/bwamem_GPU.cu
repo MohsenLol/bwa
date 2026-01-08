@@ -3614,6 +3614,7 @@ void mem_align_GPU(process_data_t *process_data)
 			d_aux,	// output
 			d_kmerHashTab,
 			d_buffer_pools);
+	exit(0);
 	// MEMFINDING_collect_intv_kernel_try1 <<< ceil((float)n_seqs / MEMFINDING_READS_PER_THREAD / 32 ), 32, 0, process_stream >>> (
 	// 	d_opt, d_bwt, d_seqs, n_seqs,
 	// 	d_aux, // output
