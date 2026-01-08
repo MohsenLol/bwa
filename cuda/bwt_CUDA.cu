@@ -169,7 +169,7 @@ __device__ static void bwt_2occ4_gpu(const bwt_t *bwt, bwtint_t k, bwtint_t l, b
  * Bidirectional BWT *
  *********************/
 
-__device__ static void bwt_extend_gpu(const bwt_t *bwt, const bwtintv_t *ik, bwtintv_t ok[4], int is_back)
+__device__ __forceinline__ static void bwt_extend_gpu(const bwt_t *bwt, const bwtintv_t *ik, bwtintv_t ok[4], int is_back)
 {
 	// tk : Occ(i, k) N(i) in [0 : k - 1]
 	// tl : Occ(i, l)
@@ -177,6 +177,7 @@ __device__ static void bwt_extend_gpu(const bwt_t *bwt, const bwtintv_t *ik, bwt
 	int i;
 	bool back_inv = !is_back;
 	bwt_2occ4_gpu(bwt, ik->x[back_inv] - 1, ik->x[back_inv] - 1 + ik->x[2], tk, tl);
+	#pragma unroll
 	for (i = 0; i != 4; ++i) {
 		ok[i].x[back_inv] = bwt->L2[i] + 1 + tk[i];
 		ok[i].x[2] = tl[i] - tk[i];
@@ -187,7 +188,7 @@ __device__ static void bwt_extend_gpu(const bwt_t *bwt, const bwtintv_t *ik, bwt
 	ok[0].x[is_back] = ok[1].x[is_back] + ok[1].x[2];
 }
 
-__device__ static void bwt_reverse_intvs(bwtintv_v *p)
+__device__ __forceinline__ static void bwt_reverse_intvs(bwtintv_v *p)
 {
 	if (p->n > 1) {
 		int j;
