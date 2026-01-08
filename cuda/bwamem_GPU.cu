@@ -1343,7 +1343,7 @@ __global__ void MEMFINDING_collect_intv_kernel(
 	{
 		if(threadIdx.x==0)
 		{
-			fprintf(stderr."Error: read length %d exceeds the max limit 512\n", l_seq);
+			printf("Error: read length %d exceeds the max limit 512\n", l_seq);
 			__trap();
 		}
 		return;
