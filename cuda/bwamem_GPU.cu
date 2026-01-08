@@ -1762,12 +1762,15 @@ __global__ void SEEDCHAINING_filter_seeds_kernel(
 	int Sum = 0; int Sum32;
 	#pragma unroll
 	for (int i=0; i<n_iter; i++){
-		if (i*WARPSIZE>=n_mem) break;
-		int memID = i*WARPSIZE + threadIdx.x;
-		if (memID<n_mem) Sum32 = S_nseeds[memID];
-		else Sum32 = 0;
-		for (int offset=WARPSIZE/2; offset>0; offset/=2)
-			Sum32 += __shfl_down_sync(0xffffffff, Sum32, offset);
+		int memID = i*WARPSIZE;
+		if(memID > n_mem) break;
+		memID += threadIdx.x;
+		Sum32 = (memID < n_mem) ? S_nseeds[memID] : 0;
+		Sum32 += __shfl_down_sync(0xffffffff, Sum32, 16);
+		Sum32 += __shfl_down_sync(0xffffffff, Sum32, 8);
+		Sum32 += __shfl_down_sync(0xffffffff, Sum32, 4);
+		Sum32 += __shfl_down_sync(0xffffffff, Sum32, 2);
+		Sum32 += __shfl_down_sync(0xffffffff, Sum32, 1);
 		Sum += Sum32;
 	}	
 	// now thread 0 has the correct Sum, allocate new mem_a on thread 0
