@@ -1429,12 +1429,14 @@ __global__ void PREPROCESS_convert_bit_encoding_kernel(const bseq1_t *d_seqs){
 	// for each read, use 32 threads to convert in parallel
 	char *seq1 = d_seqs[blockIdx.x].seq; 	// get read from global mem
 	int l_seq  = d_seqs[blockIdx.x].l_seq;	// read length
-
+	if(b >= 4)
+	{
+		printf("Haji !!!!! : %d \n", n_mem); __trap();
+	}
 	for (int j=threadIdx.x; j<l_seq; j+=blockDim.x){
 		// coalesced memory access: load 4 bytes at once if aligned
 		uint8_t b = seq1[j];
-		if (b >= 4) b = d_nst_nt4_table[b];
-		seq1[j] = (char)b;
+		seq1[j] = (char)d_nst_nt4_table[b];
 	}
 }
 
