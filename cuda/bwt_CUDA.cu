@@ -34,7 +34,7 @@
    
 #define bwt_occ_intv(b, k) ((b)->bwt + ((k)>>7<<4))
 
-
+//started again
 __device__ static inline int __occ_aux(uint64_t y, int c)
 {
 	// reduce nucleotide counting to bits counting
