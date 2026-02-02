@@ -1725,7 +1725,7 @@ __global__ void SEEDCHAINING_filter_seeds_kernel(
 	// blockIdx.x : query read index
 	bwtintv_t *mem_a = d_aux[blockIdx.x].mem.a;
 	int n_mem = d_aux[blockIdx.x].mem.n;
-	if (n_mem>SEEDCHAINING_MAX_N_MEM){printf("number of MEM too large: %d \n", n_mem); __trap();}
+	//if (n_mem>SEEDCHAINING_MAX_N_MEM){printf("number of MEM too large: %d \n", n_mem); __trap();}
 	int max_occ = d_opt->max_occ;	// Get the maximum allowed number of occurrences for a seed and save it in max_occ.
 
 	// s_l_rep[0] is the total length of repetitive seeds
