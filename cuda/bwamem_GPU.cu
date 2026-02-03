@@ -2002,7 +2002,7 @@ __global__ void SEEDCHAINING_sortSeeds_low_kernel(
 		// copy to new array
 		new_seed_a[seedID] = seed_a[thread_values[i]];
 	}
-	d_seq_seeds[blockIdx.x].a = new_seed_a;
+	if (threadIdx.x == 0)	d_seq_seeds[blockIdx.x].a = new_seed_a;
 }
 
 
