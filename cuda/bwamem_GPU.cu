@@ -2099,7 +2099,7 @@ __global__ void SEEDCHAINING_sortSeeds_low_kernel(
 	}
 
 	// Specialize BucketRadixSort
-	
+	typedef cub::BlockRadixSort<int64_t, SORTSEEDSLOW_BLOCKDIMX, SORTSEEDSLOW_NKEYS_THREAD, int> BlockRadixSort;
 	// Allocate shared mem
 	__shared__ typename BlockRadixSort::TempStorage temp_storage;
 	// sort keys
@@ -2159,6 +2159,7 @@ __global__ void SEEDCHAINING_sortSeeds_high_kernel(
 
 	// Specialize BlockRadixSort
 	typedef cub::BlockRadixSort<int64_t, SORTSEEDSHIGH_BLOCKDIMX, SORTSEEDSHIGH_NKEYS_THREAD, int> BlockRadixSort;
+	
 	// Allocate shared mem
 	__shared__ typename BlockRadixSort::TempStorage temp_storage;
 	// sort keys
