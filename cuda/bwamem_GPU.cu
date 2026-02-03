@@ -1953,14 +1953,18 @@ __device__ __forceinline__ mem_seed_t load_seed_ro(const mem_seed_t *ptr) {
     return *ptr;
 }
 
-typedef cub::BlockRadixSort<int64_t, SORTSEEDSHIGH_BLOCKDIMX, SORTSEEDSHIGH_NKEYS_THREAD, int> BlockRadixSort;
-typedef cub::WarpRadixSort<int64_t, int> WarpSort;
+
 __global__ void SEEDCHAINING_sortSeeds_kernel(
 	mem_seed_v *d_seq_seeds,
 	void *d_buffer_pools
 	)
 {
+	
+	typedef cub::BlockRadixSort<int64_t, SORTSEEDSHIGH_BLOCKDIMX, SORTSEEDSHIGH_NKEYS_THREAD, int> BlockRadixSort;
+	typedef cub::WarpRadixSort<int64_t, int> WarpSort;
 	__shared__ mem_seed_t* new_seed_a;
+	__shared__ typename WarpSort::TempStorage temp_storage;
+	__shared__ typename BlockRadixSort::TempStorage b_temp_storage;
 	int n_seeds = d_seq_seeds[blockIdx.x].n;
 	mem_seed_t *seed_a = d_seq_seeds[blockIdx.x].a;
 	
@@ -1968,7 +1972,7 @@ __global__ void SEEDCHAINING_sortSeeds_kernel(
 	if(n_seeds <= WARPSIZE && threadIdx.x < WARPSIZE)
 	{
 		
-		__shared__ WarpSort::TempStorage temp_storage;
+		
 		int64_t key;
 		int value;
 		if(threadIdx.x < n_seeds)
@@ -2016,8 +2020,7 @@ __global__ void SEEDCHAINING_sortSeeds_kernel(
 		}
 		
 		
-		__shared__ BlockRadixSort::TempStorage temp_storage;
-		BlockRadixSort(temp_storage).Sort(thread_keys, thread_values);
+		BlockRadixSort(b_temp_storage).Sort(thread_keys, thread_values);
 		if(threadIdx.x == 0) {
 			void *d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, blockIdx.x & 31);
 			new_seed_a = (mem_seed_t*)CUDAKernelMalloc(d_buffer_ptr, n_seeds*sizeof(mem_seed_t), 8);
