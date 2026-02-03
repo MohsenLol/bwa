@@ -1946,10 +1946,15 @@ typedef struct {
 // warp-efficient shared-memory radix sort
 // sort mm_seed_t array by rbeg(refrence begin) for each read
 
-__device__ __forceinline__
-mem_seed_t load_seed_ro(const mem_seed_t* ptr) {
-    return __ldg(ptr);
+__device__ __forceinline__ mem_seed_t load_seed_ro(const mem_seed_t *ptr) {
+    // Simple assignment is safer. 
+    // The compiler will automatically optimize this to use __ldg (read-only cache)
+    // if the pointer is const and strict aliasing rules allow it.
+    return *ptr;
 }
+
+typedef cub::BlockRadixSort<int64_t, SORTSEEDSHIGH_BLOCKDIMX, SORTSEEDSHIGH_NKEYS_THREAD, int> BlockRadixSort;
+typedef cub::BlockRadixSort<int64_t, SORTSEEDSHIGH_BLOCKDIMX, SORTSEEDSHIGH_NKEYS_THREAD, int> BlockRadixSort;
 __global__ void SEEDCHAINING_sortSeeds_kernel(
 	mem_seed_v *d_seq_seeds,
 	void *d_buffer_pools
@@ -2010,7 +2015,7 @@ __global__ void SEEDCHAINING_sortSeeds_kernel(
 			}
 		}
 		
-		typedef cub::BlockRadixSort<int64_t, SORTSEEDSHIGH_BLOCKDIMX, SORTSEEDSHIGH_NKEYS_THREAD, int> BlockRadixSort;
+		
 		__shared__ BlockRadixSort::TempStorage temp_storage;
 		BlockRadixSort(temp_storage).Sort(thread_keys, thread_values);
 		if(threadIdx.x == 0) {
@@ -2063,7 +2068,7 @@ __global__ void SEEDCHAINING_sortSeeds_low_kernel(
 	}
 
 	// Specialize BucketRadixSort
-	typedef cub::BlockRadixSort<int64_t, SORTSEEDSHIGH_BLOCKDIMX, SORTSEEDSHIGH_NKEYS_THREAD, int> BlockRadixSort;
+	
 	// Allocate shared mem
 	__shared__ typename BlockRadixSort::TempStorage temp_storage;
 	// sort keys
