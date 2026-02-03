@@ -1991,7 +1991,6 @@ __global__ void SEEDCHAINING_sortSeeds_kernel(
 {
 	
 	typedef cub::BlockRadixSort<int64_t, SORTSEEDSHIGH_BLOCKDIMX, SORTSEEDSHIGH_NKEYS_THREAD, int> BlockRadixSort;
-	typedef cub::WarpSort<int64_t, int> WarpSort;
 	__shared__ mem_seed_t* new_seed_a;
 	__shared__ typename BlockRadixSort::TempStorage temp_storage;
 	int n_seeds = d_seq_seeds[blockIdx.x].n;
