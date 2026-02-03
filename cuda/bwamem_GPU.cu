@@ -1954,7 +1954,7 @@ __device__ __forceinline__ mem_seed_t load_seed_ro(const mem_seed_t *ptr) {
 }
 
 typedef cub::BlockRadixSort<int64_t, SORTSEEDSHIGH_BLOCKDIMX, SORTSEEDSHIGH_NKEYS_THREAD, int> BlockRadixSort;
-typedef cub::BlockRadixSort<int64_t, SORTSEEDSHIGH_BLOCKDIMX, SORTSEEDSHIGH_NKEYS_THREAD, int> BlockRadixSort;
+typedef cub::WarpRadixSort<int64_t, int> WarpSort;
 __global__ void SEEDCHAINING_sortSeeds_kernel(
 	mem_seed_v *d_seq_seeds,
 	void *d_buffer_pools
@@ -1967,8 +1967,8 @@ __global__ void SEEDCHAINING_sortSeeds_kernel(
 	if(n_seeds==0) return;
 	if(n_seeds <= WARPSIZE && threadIdx.x < WARPSIZE)
 	{
-		typedef cub::WarpRadixSort<int64_t, int> WarpSort;
-		__shared__ typename WarpSort::TempStorage temp_storage;
+		
+		__shared__ WarpSort::TempStorage temp_storage;
 		int64_t key;
 		int value;
 		if(threadIdx.x < n_seeds)
