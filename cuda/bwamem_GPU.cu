@@ -1734,8 +1734,9 @@ __global__ void SEEDCHAINING_filter_seeds_kernel(
 	if (threadIdx.x==0) S_l_rep[0] = 0;
 	__syncthreads();
 
-	// counter of valid seeds for each mem_a
+	// How many valid seeds on refrence for each memID exists for this read
 	__shared__ uint16_t S_nseeds[SEEDCHAINING_MAX_N_MEM];
+
 	const int n_iter = SEEDCHAINING_MAX_N_MEM/WARPSIZE;
 	#pragma unroll
 	for (int i=0; i<n_iter; i++){
@@ -1757,31 +1758,46 @@ __global__ void SEEDCHAINING_filter_seeds_kernel(
 		S_nseeds[memID] = (uint16_t)occ;
 	}
 	__syncthreads();
-	// add total n_seeds and allocate new mem_a with this total
-	// Sum32 is S_nseed[memID], number of valid seeds for this memID
-	int Sum = 0; int Sum32;
+
+	__shared__ int accumulative_S_nseeds[SEEDCHAINING_MAX_N_MEM];
+	__shared__ int steps[SEEDCHAINING_MAX_N_MEM];
+	int acc = 0; // Running total of all previous warps
 	#pragma unroll
-	for (int i=0; i<n_iter; i++){
-		int memID = i*WARPSIZE;
-		if(memID > n_mem) break;
-		memID += threadIdx.x;
-		Sum32 = (memID < n_mem) ? S_nseeds[memID] : 0;
-		Sum32 += __shfl_down_sync(0xffffffff, Sum32, 16);
-		Sum32 += __shfl_down_sync(0xffffffff, Sum32, 8);
-		Sum32 += __shfl_down_sync(0xffffffff, Sum32, 4);
-		Sum32 += __shfl_down_sync(0xffffffff, Sum32, 2);
-		Sum32 += __shfl_down_sync(0xffffffff, Sum32, 1);
-		Sum  = (threadIdx.x==0) ? Sum32 + Sum : Sum;
-	}	
+	for (int i = 0; i < n_iter; i++) 
+	{
+		int memID = i * WARPSIZE + threadIdx.x;
+		int val = (memID < n_mem) ? S_nseeds[memID] : 0;
+		//Intra-warp prefix sum using shuffle instructions
+		#pragma unroll
+		for (int offset = 1; offset < WARPSIZE; offset <<= 1) {
+			int n = __shfl_up_sync(0xffffffff, val, offset);
+			if (threadIdx.x >= offset) val += n;
+		}
+
+		//Add the accumulator from previous loop iterations
+		int total_inclusive = acc + val;
+		//Write to shared memory (Only valid threads write)
+		if (memID < n_mem) {
+			accumulative_S_nseeds[memID] = total_inclusive;
+			// update steps for each memID
+			steps[memID] = (S_nseeds[memID] < max_occ) ? 1 : (mem_a[memID].x[2] / max_occ);	
+		}
+
+    // Broadcast the last thread's total (which is the sum of this whole warp + acc)
+		int warp_total_inclusive = __shfl_sync(0xffffffff, total_inclusive, WARPSIZE - 1);
+		acc = warp_total_inclusive;
+	}
+	__syncthreads();
+	// total number of valid seeds for this read
+	int Sum = (n_mem > 0) ? accumulative_S_nseeds[n_mem - 1] : 0;
 	// now thread 0 has the correct Sum, allocate new mem_a on thread 0
 	__shared__ uint16_t S_total_nseeds[1];
 	__shared__ bwtintv_t* S_new_a[1];
-	if (threadIdx.x==0){
-		void *d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, blockIdx.x & 31);
-		S_total_nseeds[0] = Sum;
-		bwtintv_t* new_a;
-		if (Sum==0) new_a = 0;
-		else {
+	if (threadIdx.x==0)
+	{
+		bwtintv_t* new_a = NULL;
+		if(Sum>0){ 
+			void *d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, blockIdx.x & 31);
 			new_a = (bwtintv_t*)CUDAKernelMalloc(d_buffer_ptr, Sum*sizeof(bwtintv_t), 8);
 			S_new_a[0] = new_a;
 		}
@@ -1793,39 +1809,42 @@ __global__ void SEEDCHAINING_filter_seeds_kernel(
 		d_aux[blockIdx.x].mem.n = Sum;
 	}
 	__syncthreads();
-	// Sum is total number of valid intervals for this read
-	Sum = S_total_nseeds[0];
 	if (Sum==0) return;	// no seed
 	bwtintv_t *new_a = S_new_a[0];
-	// now write data to new_a from each thread
-	int cumulative_total = 0; int memID = 0; int next_non0_memID;
-	while (S_nseeds[memID]==0) memID++;	// find first non-0 memID
-	if (Sum>S_nseeds[memID]){ // if there is any other nonzero memID after this
-		next_non0_memID = memID+1;
-		while (S_nseeds[next_non0_memID]==0) next_non0_memID++;
-	}
-	// i cant understand this part
-	int n_iter2 = Sum/WARPSIZE + 1;
-	for (int i=0; i<n_iter2; i++){
-		int seedID = i*WARPSIZE + threadIdx.x;
-		if (seedID>=Sum) break;
-		while (cumulative_total+S_nseeds[memID]<=seedID){
-			cumulative_total+=S_nseeds[memID];
-			memID = next_non0_memID; next_non0_memID++;
-			if (cumulative_total+S_nseeds[memID]<Sum)	// find next non-0 memID
-				while (S_nseeds[next_non0_memID]==0) next_non0_memID++;
+
+		
+	// binary Search to find the memID for each seedID
+	int n_iter_search =(Sum + WARPSIZE - 1) / WARPSIZE;
+	for(int i = 0; i < n_iter_search; ++i) {
+		int seedID = i * WARPSIZE + threadIdx.x;
+		if (seedID >= Sum) break;
+
+		//Binary search
+		int left = 0;
+		int right = n_mem - 1;
+		int memID = n_mem - 1; //Default to last memID
+
+		while (left <= right) {
+			int mid = (left + right) >> 1;
+			int mid_value = accumulative_S_nseeds[mid];
+
+			if (mid_value > seedID) {
+				memID = mid; //Potential answer
+				right = mid - 1;
+			} else {
+				left = mid + 1;
+			}
 		}
-		int step;
-		int intv_ID;	// index on mem_a[memID].x interval
-		if (S_nseeds[memID]<max_occ) step = 1;
-		else step = mem_a[memID].x[2] / max_occ;
-		intv_ID = (seedID - cumulative_total)*step;
-		bwtintv_t p;	// create a new point to write
-		p.x[0] = mem_a[memID].x[0] + intv_ID;
-		p.x[1] = (bwtint_t)S_l_rep[0];	// we will not need this later, so we use it to store l_rep
-		p.x[2] = 1;		// only a single seed in this interval
-		p.info = mem_a[memID].info;	// same match interval on read
-		new_a[seedID] = p;	// write to global mem
+			int prev_boundary = (memID == 0) ? 0 : accumulative_S_nseeds[memID - 1];
+			int offset_in_mem = seedID - prev_boundary;
+			int step = steps[memID];
+			int intv_ID = step * offset_in_mem;
+			bwtintv_t p;	// create a new point to write
+			p.x[0] = mem_a[memID].x[0] + intv_ID;
+			p.x[1] = (bwtint_t)S_l_rep[0];	// we will not need this later, so we use it to store l_rep
+			p.x[2] = 1;		// only a single seed in this interval
+			p.info = mem_a[memID].info;	// same match interval on read
+			new_a[seedID] = p;	// write to global mem
 	}
 }
 
