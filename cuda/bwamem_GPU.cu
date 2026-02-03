@@ -3778,7 +3778,7 @@ void mem_align_GPU(process_data_t *process_data)
 	/* sort seeds by rbeg for each read */
 	if (bwa_verbose>=4)  fprintf(stderr, "[M::%-25s] **** [SEED CHAINING]: sorting seeds by rbeg ...\n", __func__);
 	
-	SEEDCHAINING_sortSeeds_low_kernel <<< n_seqs, SORTSEEDSHIGH_BLOCKDIMX, 0, process_stream >>> (
+	SEEDCHAINING_sortSeeds_kernel <<< n_seqs, SORTSEEDSHIGH_BLOCKDIMX, 0, process_stream >>> (
 		d_seq_seeds,
 		d_buffer_pools);
 	gpuErrchk2( cudaPeekAtLastError() );
@@ -3796,8 +3796,6 @@ void mem_align_GPU(process_data_t *process_data)
 	/* ----------------------- Third part of pipeline: Filtering chains --------------------------------------*/
 	/* sort chains */
 	if (bwa_verbose>=4) fprintf(stderr, "[M::%-25s] **** [CHAIN FILTERING]: sorting chains ...\n", __func__);
-	// sort chains by score in descending order 
-	// SORTCHAIN_BLOCKDIMX threads for each read
 	CHAINFILTERING_sortChains_kernel <<< n_seqs, SORTCHAIN_BLOCKDIMX, MAX_N_CHAIN*2*sizeof(uint16_t)+sizeof(mem_chain_t**), process_stream >>> (
 		d_chains, d_buffer_pools);
 	gpuErrchk2( cudaPeekAtLastError());
