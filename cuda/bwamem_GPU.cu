@@ -2061,8 +2061,9 @@ __global__ void SEEDCHAINING_sortSeeds_high_kernel(
 		// copy to new array
 		new_seed_a[seedID] = seed_a[thread_values[i]];
 	}
-	//!!! race condition
-	d_seq_seeds[blockIdx.x].a = new_seed_a;
+
+	__syncthreads();
+	if (threadIdx.x == 0)	d_seq_seeds[blockIdx.x].a = new_seed_a;
 }
 
 /* find the smallest seed on seeds such that its rbeg>=rbeg_lower_bound*/
