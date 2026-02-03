@@ -1954,6 +1954,36 @@ __device__ __forceinline__ mem_seed_t load_seed_ro(const mem_seed_t *ptr) {
 }
 
 
+__device__ __forceinline__ void warpSort(int64_t &key, int &val) {
+    const int laneId = threadIdx.x & 31;
+
+    // Iterate through the stages of the bitonic sort network
+    // k is the length of the monotonic sequence we are building
+    #pragma unroll
+    for (int k = 2; k <= 32; k *= 2) {
+        // j is the stride for the comparisons
+        #pragma unroll
+        for (int j = k / 2; j > 0; j /= 2) {
+            
+            // Fetch the partner's key and value
+            int64_t other_key = __shfl_xor_sync(0xffffffff, key, j);
+            int     other_val = __shfl_xor_sync(0xffffffff, val, j);
+
+            // Determine direction: Ascending or Descending?
+            // For the final stage (k=32), we want the whole warp ascending.
+            // For earlier stages, we alternate direction to create bitonic sequences.
+            bool ascending = ((laneId & k) == 0);
+
+            // Compare and swap if necessary
+            if ( (ascending && key > other_key) || (!ascending && key < other_key) ) {
+                key = other_key;
+                val = other_val;
+            }
+        }
+    }
+}
+
+
 __global__ void SEEDCHAINING_sortSeeds_kernel(
 	mem_seed_v *d_seq_seeds,
 	void *d_buffer_pools
@@ -1963,8 +1993,7 @@ __global__ void SEEDCHAINING_sortSeeds_kernel(
 	typedef cub::BlockRadixSort<int64_t, SORTSEEDSHIGH_BLOCKDIMX, SORTSEEDSHIGH_NKEYS_THREAD, int> BlockRadixSort;
 	typedef cub::WarpSort<int64_t, int> WarpSort;
 	__shared__ mem_seed_t* new_seed_a;
-	__shared__ typename WarpSort::TempStorage temp_storage;
-	__shared__ typename BlockRadixSort::TempStorage b_temp_storage;
+	__shared__ typename BlockRadixSort::TempStorage temp_storage;
 	int n_seeds = d_seq_seeds[blockIdx.x].n;
 	mem_seed_t *seed_a = d_seq_seeds[blockIdx.x].a;
 	
@@ -1986,7 +2015,7 @@ __global__ void SEEDCHAINING_sortSeeds_kernel(
 			value = -1;
 		}
 	
-		WarpSort(temp_storage).Sort(key, value);
+		warpSort(key, value);
 		if(threadIdx.x == 0) {
 			void *d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, blockIdx.x & 31);
 			new_seed_a = (mem_seed_t*)CUDAKernelMalloc(d_buffer_ptr, n_seeds*sizeof(mem_seed_t), 8);
@@ -2020,7 +2049,7 @@ __global__ void SEEDCHAINING_sortSeeds_kernel(
 		}
 		
 		
-		BlockRadixSort(b_temp_storage).Sort(thread_keys, thread_values);
+		BlockRadixSort(temp_storage).Sort(thread_keys, thread_values);
 		if(threadIdx.x == 0) {
 			void *d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, blockIdx.x & 31);
 			new_seed_a = (mem_seed_t*)CUDAKernelMalloc(d_buffer_ptr, n_seeds*sizeof(mem_seed_t), 8);
