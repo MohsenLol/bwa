@@ -1945,6 +1945,92 @@ typedef struct {
 // process reads who have less seeds (seeds <= SORTSEEDSLOW_MAX_NSEEDS)
 // warp-efficient shared-memory radix sort
 // sort mm_seed_t array by rbeg(refrence begin) for each read
+
+__device__ __forceinline__
+mem_seed_t load_seed_ro(const mem_seed_t* ptr) {
+    return __ldg(ptr);
+}
+__global__ void SEEDCHAINING_sortSeeds_kernel(
+	mem_seed_v *d_seq_seeds,
+	void *d_buffer_pools
+	)
+{
+	__shared__ mem_seed_t* new_seed_a;
+	int n_seeds = d_seq_seeds[blockIdx.x].n;
+	mem_seed_t *seed_a = d_seq_seeds[blockIdx.x].a;
+	
+	if(n_seeds==0) return;
+	if(n_seeds <= WARPSIZE && threadIdx.x < WARPSIZE)
+	{
+		typedef cub::WarpRadixSort<int64_t, int> WarpSort;
+		__shared__ typename WarpSort::TempStorage temp_storage;
+		int64_t key;
+		int value;
+		if(threadIdx.x < n_seeds)
+		{
+			key = seed_a[threadIdx.x].rbeg;
+			value = threadIdx.x;
+		}
+		else
+		{
+			key = INT64_MAX;
+			value = -1;
+		}
+	
+		WarpSort(temp_storage).Sort(key, value);
+		if(threadIdx.x == 0) {
+			void *d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, blockIdx.x & 31);
+			new_seed_a = (mem_seed_t*)CUDAKernelMalloc(d_buffer_ptr, n_seeds*sizeof(mem_seed_t), 8);
+		}
+		// only one warp
+		__syncwarp();
+		if(threadIdx.x < n_seeds) {
+			new_seed_a[threadIdx.x] = load_seed_ro(&seed_a[value]);
+		}
+		__threadfence();
+        __syncwarp();
+		if(threadIdx.x == 0) {
+			d_seq_seeds[blockIdx.x].a = new_seed_a;
+		}
+		return;
+	} 
+	else if(n_seeds > WARPSIZE)
+	{
+		int64_t thread_keys[SORTSEEDSHIGH_NKEYS_THREAD];	// this will contain rbeg
+		int thread_values[SORTSEEDSHIGH_NKEYS_THREAD];	// this will contain original seedID
+		#pragma unroll
+		for(int i = 0; i < SORTSEEDSHIGH_NKEYS_THREAD; ++i) {
+			int SeedId = threadIdx.x * SORTSEEDSHIGH_NKEYS_THREAD + i;
+			if(SeedId < n_seeds) {
+				thread_keys[i] = seed_a[SeedId].rbeg;
+				thread_values[i] = SeedId;
+			} else {
+				thread_keys[i] = INT64_MAX;
+				thread_values[i] = -1;
+			}
+		}
+		
+		typedef cub::BlockRadixSort<int64_t, SORTSEEDSHIGH_BLOCKDIMX, SORTSEEDSHIGH_NKEYS_THREAD, int> BlockRadixSort;
+		__shared__ BlockRadixSort::TempStorage temp_storage;
+		BlockRadixSort(temp_storage).Sort(thread_keys, thread_values);
+		if(threadIdx.x == 0) {
+			void *d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, blockIdx.x & 31);
+			new_seed_a = (mem_seed_t*)CUDAKernelMalloc(d_buffer_ptr, n_seeds*sizeof(mem_seed_t), 8);
+		}
+		__syncthreads();
+		#pragma	unroll
+		for(int i = 0; i < SORTSEEDSHIGH_NKEYS_THREAD; ++i) {
+			int SeedId = threadIdx.x * SORTSEEDSHIGH_NKEYS_THREAD + i;
+			if(SeedId < n_seeds) 
+				new_seed_a[SeedId] = load_seed_ro(&seed_a[thread_values[i]]);
+		}
+		__threadfence();
+		__syncthreads();
+		if(threadIdx.x == 0) {
+			d_seq_seeds[blockIdx.x].a = new_seed_a;
+		}	
+	}
+}
 __global__ void SEEDCHAINING_sortSeeds_low_kernel(
 	mem_seed_v *d_seq_seeds,
 	void *d_buffer_pools
@@ -1977,7 +2063,7 @@ __global__ void SEEDCHAINING_sortSeeds_low_kernel(
 	}
 
 	// Specialize BucketRadixSort
-	typedef cub::BlockRadixSort<int64_t, SORTSEEDSLOW_BLOCKDIMX, SORTSEEDSLOW_NKEYS_THREAD, int> BlockRadixSort;
+	typedef cub::BlockRadixSort<int64_t, SORTSEEDSHIGH_BLOCKDIMX, SORTSEEDSHIGH_NKEYS_THREAD, int> BlockRadixSort;
 	// Allocate shared mem
 	__shared__ typename BlockRadixSort::TempStorage temp_storage;
 	// sort keys
@@ -1992,8 +2078,8 @@ __global__ void SEEDCHAINING_sortSeeds_low_kernel(
 	__syncthreads();
 	mem_seed_t *new_seed_a = S_new_seed_a[0];
 	#pragma unroll
-	for (int i=0; i<SORTSEEDSLOW_NKEYS_THREAD; i++){
-		int seedID = threadIdx.x*SORTSEEDSLOW_NKEYS_THREAD+i;
+	for (int i=0; i<SORTSEEDSHIGH_NKEYS_THREAD; i++){
+		int seedID = threadIdx.x*SORTSEEDSHIGH_NKEYS_THREAD+i;
 		if (seedID>=n_seeds) break;
 		if (thread_values[i]==-1) {
 			printf("Error: sorting result incorrect. SeqID=%d\n", blockIdx.x);
@@ -2061,7 +2147,6 @@ __global__ void SEEDCHAINING_sortSeeds_high_kernel(
 		// copy to new array
 		new_seed_a[seedID] = seed_a[thread_values[i]];
 	}
-
 	__syncthreads();
 	if (threadIdx.x == 0)	d_seq_seeds[blockIdx.x].a = new_seed_a;
 }
@@ -3691,15 +3776,9 @@ void mem_align_GPU(process_data_t *process_data)
 	gpuErrchk2( cudaStreamSynchronize(process_stream) );
 
 	/* sort seeds by rbeg for each read */
-	if (bwa_verbose>=4)  fprintf(stderr, "[M::%-25s] **** [SEED CHAINING]: sorting seeds by rbeg (low n_seeds) ...\n", __func__);
+	if (bwa_verbose>=4)  fprintf(stderr, "[M::%-25s] **** [SEED CHAINING]: sorting seeds by rbeg ...\n", __func__);
 	
-	SEEDCHAINING_sortSeeds_low_kernel <<< n_seqs, SORTSEEDSLOW_BLOCKDIMX, 0, process_stream >>> (
-		d_seq_seeds,
-		d_buffer_pools);
-	gpuErrchk2( cudaPeekAtLastError() );
-	gpuErrchk2( cudaStreamSynchronize(process_stream) );
-	if (bwa_verbose>=4)  fprintf(stderr, "[M::%-25s] **** [SEED CHAINING]: sorting seeds by rbeg (high n_seeds) ...\n", __func__);
-	SEEDCHAINING_sortSeeds_high_kernel <<< n_seqs, SORTSEEDSHIGH_BLOCKDIMX, 0, process_stream >>> (
+	SEEDCHAINING_sortSeeds_low_kernel <<< n_seqs, SORTSEEDSHIGH_BLOCKDIMX, 0, process_stream >>> (
 		d_seq_seeds,
 		d_buffer_pools);
 	gpuErrchk2( cudaPeekAtLastError() );
