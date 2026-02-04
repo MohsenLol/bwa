@@ -1320,33 +1320,35 @@ d_buffer_pools	Device memory allocator
 */
 #define start_width 1
 __global__ void MEMFINDING_collect_intv_kernel(
-	const mem_opt_t *d_opt, 
-	const bwt_t *d_bwt, 
-	const bseq1_t *d_seqs, 
-	smem_aux_t *d_aux, 			// aux output
-	kmers_bucket_t *d_kmerHashTab,
+	const mem_opt_t* __restrict__ d_opt, 
+	const bwt_t* __restrict__ d_bwt, 
+	const bseq1_t* __restrict__ d_seqs, 
+	smem_aux_t* __restrict__ d_aux, 			// aux output
+	kmers_bucket_t* __restrict__ d_kmerHashTab,
 	void* d_buffer_pools)
 {
 	// seqID = blockIdx.x
-	char *seq1; int l_seq;
 	int j;	// position on read to process
-	seq1 = d_seqs[blockIdx.x].seq; 		// get read from global mem
-	l_seq  = d_seqs[blockIdx.x].l_seq;	// read length
+	int* seq1 = d_seqs[blockIdx.x].seq; 		// get read from global mem
+	int l_seq  = d_seqs[blockIdx.x].l_seq;	// read length
 	smem_aux_t* a = &d_aux[blockIdx.x];	// aux output for this read
 	int min_seed_len = d_opt->min_seed_len;
 	int MIN_SEED = min_seed_len;
 	const int LENGTH = 100;
 	extern __shared__ int SM[];
-	if ((threadIdx.x == 0) && (l_seq < min_seed_len)) { 	// if the query is shorter than the seed length, no match
-			a->mem.n = a->mem.m = 0;
-			a->mem.a = 0;
+	if(l_seq < min_seed_len) {
+		if(threadIdx.x == 0) {
+			a->mem.n = 0;
+			a->mem.m = 0;
+			a->mam.a = 0;
+		}
 		return;
 	}
 	if(l_seq == LENGTH)
 	{
 			// cache read in shared mem	
 		uint8_t *S_seq = (uint8_t*)SM;
-		#pragma unroll
+	
 		for (j=threadIdx.x; j<LENGTH; j+=blockDim.x)
 			S_seq[j] = (uint8_t)seq1[j];
 
@@ -1367,7 +1369,6 @@ __global__ void MEMFINDING_collect_intv_kernel(
 		// extend to the right and find the longest seed
 		// positions higher than l_seq-min_seed_len would produce unqualified seds anyways
 		// iterate over positions in parallel upto (l_seq-min_seed_len)(min_len criteria)
-		#pragma unroll
 		for (j=threadIdx.x; j<=(LENGTH-MIN_SEED); j+=blockDim.x){
 			// find SMEMS starting at position j in the read
 		
