@@ -4,7 +4,7 @@
 #define _set_pac(pac, l, c) ((pac)[(l)>>2] |= (c)<<((~(l)&3)<<1))
 #define _get_pac(pac, l) ((pac)[(l)>>2]>>((~(l)&3)<<1)&3)
 
-__device__ int bns_pos2rid_gpu(const bntseq_t *bns, int64_t pos_f)
+__forceinline__ __device__ int bns_pos2rid_gpu(const bntseq_t *bns, int64_t pos_f)
 {
 	int left, mid, right;
 	if (pos_f >= bns->l_pac) return -1;
@@ -20,7 +20,7 @@ __device__ int bns_pos2rid_gpu(const bntseq_t *bns, int64_t pos_f)
 	return mid;
 }
 
-__device__ static inline int64_t bns_depos_gpu(const bntseq_t *bns, int64_t pos, int *is_rev)
+__forceinline__ __device__ static inline int64_t bns_depos_gpu(const bntseq_t *bns, int64_t pos, int *is_rev)
 {
 	return (*is_rev = (pos >= bns->l_pac))? (bns->l_pac<<1) - 1 - pos : pos;
 }
@@ -30,7 +30,7 @@ __device__ static inline int64_t bns_depos_gpu(const bntseq_t *bns, int64_t pos,
 // ... [rb......re] ....
 // bns : refrence genome mettadata
 // findes rid of interval in refrence genoom
-__device__ int bns_intv2rid_gpu(const bntseq_t *bns, int64_t rb, int64_t re)
+__forceinline__ __device__ int bns_intv2rid_gpu(const bntseq_t *bns, int64_t rb, int64_t re)
 {
 	int is_rev, rid_b, rid_e;
 	// the packed refrence is stored as 
