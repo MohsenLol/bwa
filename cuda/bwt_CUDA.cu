@@ -169,7 +169,7 @@ __device__ __forceinline__ static void bwt_2occ4_gpu(const bwt_t *bwt, bwtint_t 
  * Bidirectional BWT *
  *********************/
 
-__device__ __forceinline__ static void bwt_extend_gpu(const bwt_t *bwt, const bwtintv_t *ik, bwtintv_t ok[4], int is_back)
+__device__ __forceinline__ static void bwt_extend_gpu(const bwt_t* __restrict__ bwt, const bwtintv_t* __restrict__ ik, bwtintv_t ok[4], const bool is_back)
 {
 	// tk : Occ(i, k) N(i) in [0 : k - 1]
 	// tl : Occ(i, l)
@@ -281,7 +281,7 @@ __device__ void bwt_smem_right(const bwt_t* __restrict__ bwt, const int len, con
 			break;
 		// an A/C/G/T base
 			uint8_t c = BASE_COMPLEMENT(base); // complement of q[i]
-			bwt_extend_gpu(bwt, &ik, ok, 0);
+			bwt_extend_gpu(bwt, &ik, ok, false);
 			if (ok[c].x[2] < min_intv) break; // the interval size is too small to be extended further
 			ik = ok[c]; 	// keep going
 		
