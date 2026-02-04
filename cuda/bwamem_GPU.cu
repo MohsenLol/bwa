@@ -1861,25 +1861,6 @@ __global__ void SEEDCHAINING_filter_seeds_kernel(
 	write output to d_seq_seeds
  */
 // d_bns : 
-__global__ void SEEDCHAINING_translate_seedinfo_kernel(
-	const mem_opt_t *d_opt,
-	const bwt_t *d_bwt,
-	const bntseq_t *d_bns,
-	const bseq1_t *d_seqs,
-	smem_aux_t *d_aux,
-	mem_seed_v *d_seq_seeds,	// output
-	void *d_buffer_pools
-	)
-{
-	// seqID = blockIdx.x
-	bwtintv_t *mem_a = d_aux[blockIdx.x].mem.a;
-	int n_seeds = d_aux[blockIdx.x].mem.n;
-	if (n_seeds==0){
-		d_seq_seeds[blockIdx.x].n = 0;
-		return;
-	} 
-
-
 	// 
 	// chaining data struct 
 	/**
@@ -1893,43 +1874,83 @@ typedef struct {
 	int CUDA_PADDING;
 } mem_seed_t; // unaligned memory
 */
+
+__global__ void SEEDCHAINING_translate_seedinfo_kernel(
+	const mem_opt_t* __restrict__ d_opt,
+	const bwt_t* __restrict__ d_bwt,
+	const bntseq_t* __restrict__ d_bns,
+	const bseq1_t*  __restrict__ d_seqs,
+	smem_aux_t*    __restrict__ d_aux,
+	mem_seed_v*   __restrict__ d_seq_seeds,	// output
+	void* __restrict__ d_buffer_pools
+	)
+{
+	// seqID = blockIdx.x
+	__shared__ int n_seeds_shared;
+	__shared__ bwtintv_t* mem_a_shared;
+	__shared__ float frac_rep_shared;
+	__shared__ mem_seed_t* new_a_ptr_shared;
+	int n_seeds;
+
+
+
+
 	// allocate seed array
-	__shared__ mem_seed_t* S_seq_seeds_a[1];
+
 	if (threadIdx.x==0){
-		void *d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, blockIdx.x & 31);
-		S_seq_seeds_a[0] = (mem_seed_t*)CUDAKernelMalloc(d_buffer_ptr, n_seeds*sizeof(mem_seed_t), 8);
-		d_seq_seeds[blockIdx.x].n = n_seeds;
-		d_seq_seeds[blockIdx.x].a = S_seq_seeds_a[0];
+		smem_aux_t* current_aux = &d_aux[blockIdx.x];
+		n_seeds_shared = n_seeds = current_aux->mem.n;
+		mem_a_shared   = current_aux->mem.a;
+		if(n_seeds) {
+			// calculate frac_rep
+			// previously stored in mem_a[0].x[1]
+			int l_rep = (int)mem_a_shared[0].x[1];
+			int l_seq = d_seqs[blockIdx.x].l_seq;
+			// check is redundant
+			frac_rep_shared = l_rep<l_seq ? (float)l_rep/l_seq : 1;
+
+			void *d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, blockIdx.x & 31);
+			new_a_ptr_shared = (mem_seed_t*)CUDAKernelMalloc(d_buffer_ptr, n_seeds*sizeof(mem_seed_t), 8);
+			
+			d_seq_seeds[blockIdx.x].n = n_seeds;
+			d_seq_seeds[blockIdx.x].a = new_a_ptr_shared;
+		}
+		else {
+			d_seq_seeds[blockIdx.x].n = 0;
+			d_seq_seeds[blockIdx.x].a = NULL;
+		}
+		
 	}
 	__syncthreads();
-	// calculate frac_rep
-	float frac_rep;
-	// previously stored in mem_a[0].x[1]
-	int l_rep = (int)mem_a[0].x[1];
-	int l_seq = d_seqs[blockIdx.x].l_seq;
-	// check is redundant
-	frac_rep = l_rep<l_seq ? (float)l_rep/l_seq : 1;
-
-	// other info
-	mem_seed_t *seed_a = S_seq_seeds_a[0];	// array for output
+	n_seeds = n_seeds_shared;
+	if (n_seeds==0)	return;
+	bwtintv_t *mem_a = mem_a_shared;
+	float frac_rep = frac_rep_shared;
+	
+	mem_seed_t *seed_a = new_a_ptr_shared;	// array for output
 	for (int seedID=threadIdx.x; seedID<n_seeds; seedID+=blockDim.x){
-		bwtint_t p0 = mem_a[seedID].x[0];
-		bwtint_t p_info = mem_a[seedID].info;
+		bwtintv_t mem_seedID = mem_a[seedID];
+		bwtint_t p0 = mem_seedID.x[0];
+		bwtint_t p_info = mem_seedID.info;
 		int64_t rbeg;
-		uint32_t qbeg, qend, rid;
+		uint32_t qbeg, qend, rid, len;
 		// calculate qbeg, qend
-		qbeg = p_info>>32;
+		qbeg = (uint32_t)(p_info>>32);
 		qend = (uint32_t)p_info;
+		len = qend - qbeg;
 		// calculate rbeg
 		rbeg = bwt_sa_gpu(d_bwt, p0);
 		// calculate rid (chromosome id of interval)
-		rid = bns_intv2rid_gpu(d_bns, rbeg, rbeg + qend - qbeg);
-		// save output		
-		seed_a[seedID].rbeg = rbeg;
-		seed_a[seedID].qbeg = qbeg;
-		seed_a[seedID].len = seed_a[seedID].score = qend - qbeg;
-		seed_a[seedID].frac_rep = frac_rep;
-		seed_a[seedID].rid = rid;
+		rid = bns_intv2rid_gpu(d_bns, rbeg, rbeg + len);
+		// save output	
+		mem_seed_t outtemp;
+		outtemp.rbeg = rbeg;
+		outtemp.qbeg = qbeg; 
+		outtemp.len = outtemp.score = len;
+		outtemp.frac_rep = frac_rep;
+		outtemp.rid = rid; 	
+		// one write  (Coalesced Write)
+		seed_a[seedID] = outtemp;
 	}
 }
 
@@ -3788,11 +3809,6 @@ void mem_align_GPU(process_data_t *process_data)
 			d_aux,	// output
 			d_kmerHashTab,
 			d_buffer_pools);
-	// MEMFINDING_collect_intv_kernel_try1 <<< ceil((float)n_seqs / MEMFINDING_READS_PER_THREAD / 32 ), 32, 0, process_stream >>> (
-	// 	d_opt, d_bwt, d_seqs, n_seqs,
-	// 	d_aux, // output
-	// 	d_kmerHashTab,
-	// 	d_buffer_pools);
 	gpuErrchk2( cudaPeekAtLastError() );
 	gpuErrchk2( cudaStreamSynchronize(process_stream) );
 
