@@ -260,7 +260,7 @@ __device__ bool bwt_extend_right1(const bwt_t *bwt, int qlen, const uint8_t *q, 
 
 // extend furthest to the right from a position and save that one seed
 //bwt_smem_right(                  d_bwt,                         l_seq,                          seq,    j,   start_width,             0,        min_seed_len,                         mem_a,                              d_kmerHashTab);
-__forceinline__ __device__ void bwt_smem_right(const bwt_t* __restrict__ bwt, const int len, const uint8_t* __restrict__ q, const int x, int min_intv, uint64_t max_intv, int min_seed_len, bwtintv_t* __restrict__ mem_a, const kmers_bucket_t* __restrict__ d_kmersHashTab) 
+__device__ void bwt_smem_right(const bwt_t* __restrict__ bwt, const int len, const uint8_t* __restrict__ q, const int x, int min_intv, uint64_t max_intv, int min_seed_len, bwtintv_t* __restrict__ mem_a, const kmers_bucket_t* __restrict__ d_kmersHashTab) 
 {
 	bwtintv_t ik, ok[4];
 	min_intv = ::max(min_intv, 1);
