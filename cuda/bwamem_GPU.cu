@@ -1340,7 +1340,7 @@ __global__ void MEMFINDING_collect_intv_kernel(
 		if(threadIdx.x == 0) {
 			a->mem.n = 0;
 			a->mem.m = 0;
-			a->mam.a = 0;
+			a->mem.a = NULL;
 		}
 		return;
 	}
