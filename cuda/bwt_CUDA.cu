@@ -208,7 +208,7 @@ __device__ __forceinline__ static void bwt_reverse_intvs(bwtintv_v *p)
 extern __device__ __constant__ unsigned char d_nst_nt4_table[256];
 #define d_charToInt(c) (d_nst_nt4_table[(int)c])	// for device code only
 #define d_intToChar(x) ("ACGTN"[(x)])
-__device__ __forceinline__ int d_hashK(const uint8_t* s){
+__forceinline__ __device__  int d_hashK(const uint8_t* s){
     int out = 0;
     for (int i=0; i<KMER_K; i++){
         if (s[i]==4) return -1;
