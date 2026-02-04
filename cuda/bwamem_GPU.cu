@@ -1355,10 +1355,10 @@ __global__ void MEMFINDING_collect_intv_kernel(
 		if (threadIdx.x == 0){
 			void* d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, blockIdx.x & 31);
 			// min length of seed should be min_seed_len => we truncated (min_seed_len-1) positions from the end
-			S_mem_a[0] = (bwtintv_t*)CUDAKernelMalloc(d_buffer_ptr, (l_seq-min_seed_len+1)*sizeof(bwtintv_t), 8);
+			S_mem_a[0] = (bwtintv_t*)CUDAKernelMalloc(d_buffer_ptr, (LENGTH-min_seed_len+1)*sizeof(bwtintv_t), 8);
 			// n : number of intervals allocated
 			// m : maximum number of intervals allocated
-			a->mem.n = a->mem.m = l_seq-min_seed_len+1;
+			a->mem.n = a->mem.m = LENGTH-min_seed_len+1;
 			a->mem.a = S_mem_a[0];
 			//printf("bwtsize is %d\n", d_bwt->bwt_size);
 		}
