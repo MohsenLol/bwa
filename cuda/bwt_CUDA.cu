@@ -176,13 +176,18 @@ __device__ __forceinline__ static void bwt_extend_gpu(const bwt_t* __restrict__ 
 	bwtint_t tk[4], tl[4];
 	int i;
 	bool back_inv = !is_back;
-	bwt_2occ4_gpu(bwt, ik->x[back_inv] - 1, ik->x[back_inv] - 1 + ik->x[2], tk, tl);
+	bwtint_t k_start = ik->x[back_inv];
+	bwtint_t k_width = ik->x[2];
+	bwtint_t primary = bwt->primary;
+	bwtint_t k_end   = k_start + k_width - 1;
+	
+	bwt_2occ4_gpu(bwt, k_start - 1, k_start - 1 + k_width, tk, tl);
 	#pragma unroll
 	for (i = 0; i != 4; ++i) {
 		ok[i].x[back_inv] = bwt->L2[i] + 1 + tk[i];
 		ok[i].x[2] = tl[i] - tk[i];
 	}
-	ok[3].x[is_back] = ik->x[is_back] + (ik->x[back_inv] <= bwt->primary && ik->x[back_inv] + ik->x[2] - 1 >= bwt->primary);
+	ok[3].x[is_back] = ik->x[is_back] + (k_start <= primary && k_end >= primary);
 	ok[2].x[is_back] = ok[3].x[is_back] + ok[3].x[2];
 	ok[1].x[is_back] = ok[2].x[is_back] + ok[2].x[2];
 	ok[0].x[is_back] = ok[1].x[is_back] + ok[1].x[2];
