@@ -254,16 +254,16 @@ __device__ bool bwt_extend_right1(const bwt_t *bwt, int qlen, const uint8_t *q, 
 #define BASE_COMPLEMENT(b) (3 - (b)) 
 
 // extend furthest to the right from a position and save that one seed
-//bwt_smem_right(d_bwt, l_seq, seq, j, start_width, 0, min_seed_len, mem_a, d_kmerHashTab);
-__device__ void bwt_smem_right(const bwt_t *bwt, int len, const uint8_t *q, int x, int min_intv, uint64_t max_intv, int min_seed_len, bwtintv_t *mem_a, kmers_bucket_t *d_kmersHashTab)
+//bwt_smem_right(                  d_bwt,                         l_seq,                          seq,    j,   start_width,             0,        min_seed_len,                         mem_a,                              d_kmerHashTab);
+__device__ void bwt_smem_right(const bwt_t* __restrict__ bwt, const int len, const uint8_t* __restrict__ q, const int x, int min_intv, uint64_t max_intv, int min_seed_len, bwtintv_t* __restrict__ mem_a, const kmers_bucket_t* __restrict__ d_kmersHashTab)
 {
 	bwtintv_t ik, ok[4];
-	if (min_intv < 1) min_intv = 1; // the interval size should be at least 1
+	min_intv = ::max(min_intv, 1);
+	 // the interval size should be at least 1
 	// q[x] is a base
 	// ik.x[0] = start of q[x] interval
 	// ik.x[1] = start of q[x] complement interval
 	// ik.x[2] = size of q[x] interval
-	bwt_set_intv(bwt, q[x], ik); 	// the initial interval of a single base
 	// load interval for first K base from hash table
 	if (x>len-1-KMER_K) return;	// not enough space to the right for extension
 	int hashValue = d_hashK(&q[x]);
@@ -273,18 +273,18 @@ __device__ void bwt_smem_right(const bwt_t *bwt, int len, const uint8_t *q, int 
 	// ik.info = (start | end)
 	ik.info = ((uint64_t)x<<32) | ((uint64_t)(x+KMER_K-1));
 
-	int i;
-	for (i = x + KMER_K; i < len; ++i) { // forward search
-		if (ik.x[2] < max_intv) { // extend until reach the string with maxlength = max_intv
+	int i = x + KMER_K;
+	for (; i < len; ++i) { // forward search
+		uint8_t base = q[i];
+		
+		if (ik.x[2] < max_intv || base >= 4) { // extend until reach the string with maxlength = max_intv
 			break;
-		} else if (q[i] < 4) { // an A/C/G/T base
-			int c = BASE_COMPLEMENT(q[i]); // complement of q[i]
+		// an A/C/G/T base
+			uint8_t c = BASE_COMPLEMENT(base); // complement of q[i]
 			bwt_extend_gpu(bwt, &ik, ok, 0);
 			if (ok[c].x[2] < min_intv) break; // the interval size is too small to be extended further
 			ik = ok[c]; 	// keep going
-		} else { // an ambiguous base
-			break; // always terminate extension at an ambiguous base; in this case, i<len always stands
-		}
+		
 	}
 	// ik.info = (start | end)
 	ik.info = ((uint64_t)x<<32) | ((uint64_t)i);		
