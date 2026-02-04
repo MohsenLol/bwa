@@ -22,7 +22,7 @@ extern __device__ bool bwt_extend_right1(const bwt_t *bwt, int qlen, const uint8
 
 extern __device__ void bwt_smem_left(const bwt_t *bwt, int len, const uint8_t *q, int x, int min_intv, uint64_t max_intv, int min_seed_len, bwtintv_v *mem);
 
-extern __forceinline__ __device__ void bwt_smem_right(const bwt_t* __restrict__ bwt, const int len, const uint8_t* __restrict__ q, const int x, int min_intv, uint64_t max_intv, int min_seed_len, bwtintv_t* __restrict__ mem_a, const kmers_bucket_t* __restrict__ d_kmersHashTab) ;
+//extern __forceinline__ __device__ void bwt_smem_right(const bwt_t* __restrict__ bwt, const int len, const uint8_t* __restrict__ q, const int x, int min_intv, uint64_t max_intv, int min_seed_len, bwtintv_t* __restrict__ mem_a, const kmers_bucket_t* __restrict__ d_kmersHashTab) ;
 
 extern __device__ int bwt_smem1a_gpu(const bwt_t *bwt, int len, const uint8_t *q, int x, int min_intv, uint64_t max_intv, bwtintv_v *mem, bwtintv_v *tmpvec[2], void* d_buffer_ptr);
 
