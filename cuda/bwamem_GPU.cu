@@ -2383,7 +2383,7 @@ __global__ void SEEDCHAINING_chain_kernel(
 			int4  raw4int = src_ptr[i << 1];
 			*((int4*)&S_seeds[i]) = raw4int;
 			rids[i] = seed_a_global[i].rid;
-			S_suceeding_seed[i] = INT16_INVALID; // initial: no chain yet
+			S_suceeding_seed[i] = INT_MAX; // initial: no chain yet
 	}
 		// seed 0 always head of a chain
 	if (threadIdx.x==0) S_preceding_seed[0] = 0;
@@ -2407,7 +2407,7 @@ __global__ void SEEDCHAINING_chain_kernel(
 		smallmem_seed_t seed_j = S_seeds[j];
 		int32_t rid_j = rids[j];
 		if (rid_j==-1){
-			S_preceding_seed[j] = INT_MAX;
+			S_preceding_seed[j] = -1;
 			continue;
 		} 
 		else {S_preceding_seed[j] = j;}
@@ -2437,7 +2437,7 @@ __global__ void SEEDCHAINING_chain_kernel(
 				   abs(q_dist - (int)r_dist) <= bandwidth_gap)
 				{
 					S_preceding_seed[j] = i;
-					atomicMin( S_suceeding_seed[i], j);
+					atomicMin(&S_suceeding_seed[i], j);
 					break;	// stop at the nearest preceding seed
 				}
 			}
