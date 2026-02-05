@@ -20,7 +20,7 @@ __forceinline__ __device__ int bns_pos2rid_gpu(const bntseq_t *bns, int64_t pos_
 	return mid;
 }
 
-__forceinline__ __device__ static inline int64_t bns_depos_gpu(const bntseq_t *bns, int64_t pos, int *is_rev)
+__forceinline__ __device__ static  int64_t bns_depos_gpu(const bntseq_t *bns, int64_t pos, int *is_rev)
 {
 	return (*is_rev = (pos >= bns->l_pac))? (bns->l_pac<<1) - 1 - pos : pos;
 }
