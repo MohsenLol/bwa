@@ -2348,24 +2348,19 @@ __device__ inline static int search_lower_bound_rbeg(mem_seed_t *seeds, int seed
 // d_chains : output chains
 // d_seqs : for getting l_seq
 __global__ void SEEDCHAINING_chain_kernel(
-	const mem_opt_t *d_opt,
-	const bntseq_t *d_bns,
-	bseq1_t *d_seqs,
-	mem_seed_v *d_seq_seeds,
-	mem_chain_v *d_chains,	// output
-	void *d_buffer_pools
+	   const mem_opt_t * __restrict__ d_opt,
+    const bntseq_t * __restrict__ d_bns,
+    const bseq1_t * __restrict__ d_seqs, // Added const
+    mem_seed_v * __restrict__ d_seq_seeds,
+    mem_chain_v * __restrict__ d_chains,    // output
+    void *d_buffer_pools
 	)
 {
 	// seqID = blockIdx.x
 	int n_seeds = d_seq_seeds[blockIdx.x].n;
-	if(n_seeds > SORTSEEDSHIGH_MAX_NSEEDS)
-	{
-		printf("Error: number of seeds exceed maximum limit (%d) for chaining. SeqID=%d, n_seeds=%d\n", SORTSEEDSHIGH_MAX_NSEEDS, blockIdx.x, n_seeds);
-		//__trap();
-		n_seeds = SORTSEEDSHIGH_MAX_NSEEDS;
-	}
+	n_seeds = n_seeds < SORTSEEDSHIGH_MAX_NSEEDS ? n_seeds : SORTSEEDSHIGH_MAX_NSEEDS;
 	if (n_seeds==0){
-		d_chains[blockIdx.x].n = 0;
+		if(threadIdx.x==0) d_chains[blockIdx.x].n = 0;
 		return;
 	}
 	mem_seed_t *seed_a = d_seq_seeds[blockIdx.x].a;	// seed array
