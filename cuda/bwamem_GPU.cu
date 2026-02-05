@@ -2343,6 +2343,7 @@ __device__ inline static int search_lower_bound_rbeg(mem_seed_t *seeds, int seed
      - preceding_seed[j] = -1 means seed is discarded
      - suceeding_seed[i] = INT_MAX means that seed i has no suceeding seed
  */
+
 #define SEEDCHAINING_CHAIN_BLOCKDIMX 256
 // d_seq_seeds : input seeds sorted by rbeg
 // d_chains : output chains
@@ -2363,16 +2364,25 @@ __global__ void SEEDCHAINING_chain_kernel(
 		if(threadIdx.x==0) d_chains[blockIdx.x].n = 0;
 		return;
 	}
-	mem_seed_t *seed_a = d_seq_seeds[blockIdx.x].a;	// seed array
-	int l_seq = d_seqs[blockIdx.x].l_seq;
+	mem_seed_t *seed_a_global = d_seq_seeds[blockIdx.x].a;	// seed array
 	// double linked-list representation of chains
 	// for each seed, store its preceding seed and suceeding seed on the chain
+	__shared__ mem_seed_t S_seeds[SORTSEEDSHIGH_MAX_NSEEDS];
 	__shared__ int16_t S_preceding_seed[SORTSEEDSHIGH_MAX_NSEEDS];
 	__shared__ int S_suceeding_seed[SORTSEEDSHIGH_MAX_NSEEDS];
-	if (threadIdx.x==0) S_preceding_seed[0] = 0;	// seed 0 always head of a chain
-	for (int seedID=threadIdx.x; seedID<n_seeds; seedID+=blockDim.x) S_suceeding_seed[seedID] = INT_MAX;	// initial: no chain yet
-	//!!!!!! need syncthreads here
-
+	// transfer seed data to shared memory
+	for(int i = threadIdx.x; i < n_seeds; i += blockDim.x) {
+			S_seeds[i] = seed_a_global[i];
+			S_suceeding_seed[i] = INT_MAX; // initial: no chain yet
+	}
+		// seed 0 always head of a chain
+	if (threadIdx.x==0) S_preceding_seed[0] = 0;
+	__syncthreads();
+	const int max_chain_gap = d_opt->max_chain_gap;
+    const int bandwidth_gap = d_opt->w;
+    const int64_t l_pac = d_bns->l_pac;
+    const int l_seq = d_seqs[blockIdx.x].l_seq;
+	
 	// for each seed (except 0), find nearest preceding chainable seed
 	// maximum gap between two seeds on a chain
 	// conditions for two seeds i,j to be chainable (i<j):
@@ -2383,42 +2393,53 @@ __global__ void SEEDCHAINING_chain_kernel(
 	// 5. (qbeg_j - qbeg_i) - len_i < max_chain_gap
 	// 6. (rbeg_j - rbeg_i) - len_i < max_chain_gap
 	// 7. |(qbeg_j - qbeg_i) - (rbeg_j - rbeg_i)| <= bandwidth_gap
-	int max_chain_gap = d_opt->max_chain_gap;
-	int bandwidth_gap = d_opt->w;
-	int64_t l_pac = d_bns->l_pac;
 	for (int j=threadIdx.x+1; j<n_seeds; j+=blockDim.x){
-		if (seed_a[j].rid==-1){
-			S_preceding_seed[j] = -1; continue;
-		} else S_preceding_seed[j] = j;
-		int64_t rbeg_j = seed_a[j].rbeg;
+		mem_seed_t seed_j = S_seeds[j];
+		if (seed_j.rid==-1){
+			S_preceding_seed[j] = -1;
+			continue;
+		} 
+		else {S_preceding_seed[j] = j;}
 		// find lower bound for rbeg_i, lower value than which seeds cannot chain to seed j
-		int64_t rbeg_lower_bound = seed_a[j].rbeg - l_seq - max_chain_gap;
-		int seedID_lower_bound = search_lower_bound_rbeg(seed_a, j, rbeg_lower_bound);
+		int64_t rbeg_lower_bound = seed_j.rbeg - l_seq - max_chain_gap;
+		const int seedID_lower_bound = 0;
+		// removed because of global memory access int seedID_lower_bound = search_lower_bound_rbeg(seed_a, j, rbeg_lower_bound);
 		for (int i=j-1; i>=seedID_lower_bound; i--){
-			int64_t rbeg_i = seed_a[i].rbeg;
-			// test condition 1 && 2
-			if (seed_a[i].rid != seed_a[j].rid || (rbeg_i<l_pac && rbeg_j>=l_pac)) break;	// seeds  are not on a same chromosome or one is circular other is linear and other is linear
+			mem_seed_t seed_i = S_seeds[i];
+			int64_t rbeg_i = seed_i.rbeg;
+			int64_t rbeg_j = seed_j.rbeg;
+			// stop early if rbeg_i < rbeg_lower_bound
+			if(rbeg_i < rbeg_lower_bound) break;	// no more seeds can chain to seed j
+			// test condition 1 : Differenet reference ID
+			if (seed_i.rid != seed_j.rid) break;
+			// test condtion 2 : circular/linear chromosome boundary crossing
+			if (rbeg_i<l_pac && rbeg_j>=l_pac) break;	// seeds  are not on a same chromosome or one is circular other is linear and other is linear
 			// condition 4 is already satisfied by the lower bound
-			// test conditions 3, 5-7
-			if (seed_a[j].qbeg >= seed_a[i].qbeg &&
-				seed_a[j].qbeg - seed_a[i].qbeg - seed_a[i].len < max_chain_gap &&
-				rbeg_j - rbeg_i - seed_a[i].len < max_chain_gap &&
-				(seed_a[j].qbeg-seed_a[i].qbeg) - (rbeg_j-rbeg_i) <= bandwidth_gap &&
-				(rbeg_j-rbeg_i) - (seed_a[j].qbeg-seed_a[i].qbeg) <= bandwidth_gap)
-			{
-				S_preceding_seed[j] = i;
-				// mistake again here, need atomic for suceeding seed
-				
-				atomicMin(&S_suceeding_seed[i], j);
-				break;	// stop at the nearest preceding seed
+			int64_t r_dist = seed_j.rbeg - seed_i.rbeg;
+			int q_dist = seed_j.qbeg - seed_i.qbeg;
+			if(q_dist >= 0) { // test conditions 3, 5-7
+				int q_span = q_dist - seed_i.len;
+				int r_span = (int)r_dist - seed_i.len;
+				if(q_span < max_chain_gap &&
+				   r_span < max_chain_gap &&
+				   abs(q_dist - (int)r_dist) <= bandwidth_gap)
+				{
+					S_preceding_seed[j] = i;
+					atomicMin(&S_suceeding_seed[i], j);
+					break;	// stop at the nearest preceding seed
+				}
 			}
-		}
+			
+		}	
 	}
 	__syncthreads();
-	// check the pairs of suceeding-preceeding. if unmatch, make seed head of chain
+	// fix preceding_seed to make sure doubly linked-list is consistent
+	// if seed j's preceding seed is i, then seed i's suceeding seed
+	// min in |internal for loop|  may creates broken preceeding link 
 	for (int j=threadIdx.x+1; j<n_seeds; j+=blockDim.x){
-		if (S_preceding_seed[j]==-1) continue;
-		if (S_suceeding_seed[S_preceding_seed[j]] != j) // not match
+		int predec_seed = S_preceding_seed[j];
+		if (predec_seed==-1) continue;
+		if (S_suceeding_seed[predec_seed] != j) // not match
 			S_preceding_seed[j] = j;	// make seed j head of chain
 	}
 
@@ -2426,34 +2447,38 @@ __global__ void SEEDCHAINING_chain_kernel(
 	__shared__ int S_n_chains[1];
 	__shared__ mem_chain_t* S_chain_a[1];
 	if (threadIdx.x==0) {
-		void *d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, blockIdx.x%32);
+		void *d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, blockIdx.x & 31);
 		S_chain_a[0] = (mem_chain_t*)CUDAKernelMalloc(d_buffer_ptr, n_seeds*sizeof(mem_chain_t), 8);
 		S_n_chains[0] = 0;
 	}
 	__syncthreads();
-	void *d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, (blockIdx.x * blockDim.x + threadIdx.x) % 32);
+	void *d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, (blockIdx.x * blockDim.x + threadIdx.x) & 31);
 	mem_chain_t *chain_a = S_chain_a[0];
 	for (int i=threadIdx.x; i<n_seeds; i+=blockDim.x){	// i = seedID
 		if (S_preceding_seed[i] == i){	// seed i is head of chain
 			// start a new chain
 			int chainID = atomicAdd(&S_n_chains[0], 1);
-			chain_a[chainID].pos = seed_a[i].rbeg;
-			chain_a[chainID].rid = seed_a[i].rid;
-			chain_a[chainID].is_alt = !!(d_bns->anns[seed_a[i].rid].is_alt);
+			mem_seed_t head_seed = S_seeds[i];
+			chain_a[chainID].pos = head_seed.rbeg;
+			chain_a[chainID].rid = head_seed.rid;
+			chain_a[chainID].is_alt = !!(d_bns->anns[head_seed.rid].is_alt);
 			// initialize seed array on this chain
-			int chain_m = 9;	// amount of pre-allocated memory for seeds array
+			int chain_m = 16;	// amount of pre-allocated memory for seeds array (increased from 9 to 16 to reduce re-allocation)
 			int chain_n = 1;	// number of seed in this new chain
 			mem_seed_t *chain_seeds = (mem_seed_t*)CUDAKernelMalloc(d_buffer_ptr, chain_m*sizeof(mem_seed_t), 8);	// seeds array for this chain
-			chain_seeds[0] = seed_a[i];	// first seed on chain
+			chain_seeds[0] = head_seed;	// first seed on chain
 			int l = i;	// counting suceeding seeds
 			// add suceeding seeds
-			while (S_suceeding_seed[l]<INT_MAX){
-				l = S_suceeding_seed[l];
+			int next_l = S_suceeding_seed[l];
+			while (next_l < INT_MAX){
+				l = next_l;
+				
 				if (chain_n==chain_m){	// need to expand memory allocation
 					chain_m = chain_m<<1;
 					chain_seeds = (mem_seed_t*)CUDAKernelRealloc(d_buffer_ptr, chain_seeds, chain_m*sizeof(mem_seed_t), 8);
 				}
-				chain_seeds[chain_n++] = seed_a[l];
+				chain_seeds[chain_n++] = S_seeds[l];
+				next_l = S_suceeding_seed[l];
 			}
 			chain_a[chainID].n = chain_n;
 			chain_a[chainID].m = chain_m;
@@ -2468,12 +2493,6 @@ __global__ void SEEDCHAINING_chain_kernel(
 		d_chains[blockIdx.x].a = chain_a;
 	}
 
-// if (threadIdx.x==0)printf("seqID=%d, seeds=%p\n", blockIdx.x, d_chains[blockIdx.x].a[0].seeds);
-
-// if (threadIdx.x==0)
-// 	for (int i=0; i<d_chains[blockIdx.x].n; i++)
-// 		for (int j=0; j<d_chains[blockIdx.x].a[i].n; j++)
-// 			printf("new: seqID=%d, chainID=%d, seedID=%d, qbeg=%d, len=%d rbeg=%ld\n", blockIdx.x, i, j, d_chains[blockIdx.x].a[i].seeds[j].qbeg, d_chains[blockIdx.x].a[i].seeds[j].len, d_chains[blockIdx.x].a[i].seeds[j].rbeg);
 
 }
 
