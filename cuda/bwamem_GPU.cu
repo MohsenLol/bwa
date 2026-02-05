@@ -2343,7 +2343,7 @@ __device__ inline static int search_lower_bound_rbeg(mem_seed_t *seeds, int seed
      - preceding_seed[j] = -1 means seed is discarded
      - suceeding_seed[i] = INT_MAX means that seed i has no suceeding seed
  */
-#define INT16_INVALID ((int16_t)-1)
+#define INT_INVALID (-1)
 struct __align__(16) smallmem_seed_t {
     int64_t rbeg;
     int32_t qbeg;
@@ -2375,7 +2375,7 @@ __global__ void SEEDCHAINING_chain_kernel(
 	__shared__ smallmem_seed_t S_seeds[SORTSEEDSHIGH_MAX_NSEEDS];
 	__shared__ int32_t rids[SORTSEEDSHIGH_MAX_NSEEDS];
 	__shared__ int16_t S_preceding_seed[SORTSEEDSHIGH_MAX_NSEEDS];
-	__shared__ int16_t S_suceeding_seed[SORTSEEDSHIGH_MAX_NSEEDS];
+	__shared__ int S_suceeding_seed[SORTSEEDSHIGH_MAX_NSEEDS];
 	// transfer seed data to shared memory
 	for(int i = threadIdx.x; i < n_seeds; i += blockDim.x) {
 		// 128 aligned copy
@@ -2407,7 +2407,7 @@ __global__ void SEEDCHAINING_chain_kernel(
 		smallmem_seed_t seed_j = S_seeds[j];
 		int32_t rid_j = rids[j];
 		if (rid_j==-1){
-			S_preceding_seed[j] = INT16_INVALID;
+			S_preceding_seed[j] = INT_MAX;
 			continue;
 		} 
 		else {S_preceding_seed[j] = j;}
@@ -2437,7 +2437,7 @@ __global__ void SEEDCHAINING_chain_kernel(
 				   abs(q_dist - (int)r_dist) <= bandwidth_gap)
 				{
 					S_preceding_seed[j] = i;
-					atomicMin( (unsigned short*)&S_suceeding_seed[i], (unsigned short)j);
+					atomicMin( S_suceeding_seed[i], j);
 					break;	// stop at the nearest preceding seed
 				}
 			}
@@ -2483,7 +2483,7 @@ __global__ void SEEDCHAINING_chain_kernel(
 			int l = i;	// counting suceeding seeds
 			// add suceeding seeds
 			int next_l = S_suceeding_seed[l];
-			while (next_l != INT16_INVALID){
+			while (next_l != INT_MAX){
 				l = next_l;
 				
 				if (chain_n==chain_m){	// need to expand memory allocation
