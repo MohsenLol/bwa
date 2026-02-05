@@ -2479,7 +2479,7 @@ __global__ void SEEDCHAINING_chain_kernel(
 			int chain_m = 16;	// amount of pre-allocated memory for seeds array (increased from 9 to 16 to reduce re-allocation)
 			int chain_n = 1;	// number of seed in this new chain
 			mem_seed_t *chain_seeds = (mem_seed_t*)CUDAKernelMalloc(d_buffer_ptr, chain_m*sizeof(mem_seed_t), 8);	// seeds array for this chain
-			chain_seeds[0] = head_seed;	// first seed on chain
+			chain_seeds[0] = seed_a_global[i];	// first seed on chain
 			int l = i;	// counting suceeding seeds
 			// add suceeding seeds
 			int next_l = S_suceeding_seed[l];
@@ -2490,7 +2490,7 @@ __global__ void SEEDCHAINING_chain_kernel(
 					chain_m = chain_m<<1;
 					chain_seeds = (mem_seed_t*)CUDAKernelRealloc(d_buffer_ptr, chain_seeds, chain_m*sizeof(mem_seed_t), 8);
 				}
-				chain_seeds[chain_n++] = seed_a_global[i];
+				chain_seeds[chain_n++] = seed_a_global[l];
 				next_l = S_suceeding_seed[l];
 			}
 			chain_a[chainID].n = chain_n;
