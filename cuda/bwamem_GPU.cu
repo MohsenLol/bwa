@@ -2006,6 +2006,118 @@ __device__ __forceinline__ void warpSort(int64_t &key, int &val) {
 }
 
 
+#define SORT_BLOCKDIM 128       // Max threads needed (High path)
+#define LOW_THRESHOLD 64        // Boundary between Low and High logic
+
+// Combined logic constants
+#define HIGH_ITEMS_PER_THREAD 16
+#define LOW_ITEMS_PER_THREAD 2 
+
+
+__global__ void SEEDCHAINING_sortSeeds_unified_kernel(
+	mem_seed_v *d_seq_seeds,
+	void *d_buffer_pools
+)
+{
+	int n_seeds = d_seq_seeds[blockIdx.x].n;
+	if(n_seeds == 0) return;
+	mem_seed_t *seed_a = d_seq_seeds[blockIdx.x].a;
+	union TempStorage
+	{
+		struct {
+			typename cub::BlockRadixSort<int64_t, SORT_BLOCKDIM, HIGH_ITEMS_PER_THREAD, int>::TempStorage sort;	
+		} high;
+		// Low Count Storage 
+		struct 
+		{
+			typename cub::BlockRadixSort<int64_t, WARPSIZE, LOW_ITEMS_PER_THREAD, int>::TempStorage sort;
+			mem_seed_t cache[LOW_THRESHOLD];
+		} low;
+		
+	};
+	__shared__ TempStorage temp_storage;
+	if(n_seeds <= LOW_THRESHOLD) /*PATH1 : LOW SEED COUNT Using Shared Memory */
+	{
+		// only first WRAP is Needed;
+	if(threadIdx.x < 32) 
+	{
+		#pragma unroll
+		for(int i = 0; i < LOW_ITEMS_PER_THREAD; ++i ) {
+			int seedID = threadIdx.x * LOW_ITEMS_PER_THREAD + i;
+			if(seedID < n_seeds) {
+				temp_storage.low.cache[seedID] = seed_a[seedID];
+			}
+		}
+		// Ensure cache is filled with data
+		__syncwarp();
+		// prepare keys
+		int64_t thread_keys[LOW_ITEMS_PER_THREAD];
+		int     thread_values[LOW_ITEMS_PER_THREAD];
+		#pragma unroll
+		for (int i = 0; i < LOW_ITEMS_PER_THREAD; i++) {
+				int seedID = threadIdx.x * LOW_ITEMS_PER_THREAD + i;
+				if (seedID < n_seeds) {
+					thread_keys[i] = temp_storage.low.cache[seedID].rbeg; // Read key from cache
+					thread_values[i] = seedID;
+				} else {
+					thread_keys[i] = INT64_MAX; // Padding
+					thread_values[i] = -1;
+				}
+		}
+		typedef cub::BlockRadixSort<int64_t, WARPSIZE , LOW_ITEMS_PER_THREAD, int> BlockRadixSortLow;
+		BlockRadixSortLow(temp_storage.low.sort).Sort(thread_keys, thread_values);
+		#pragma unroll // Write back IN-PLACE (Coalesced Write)
+		for (int i = 0; i < LOW_ITEMS_PER_THREAD; i++) {
+				int seedID = threadIdx.x * LOW_ITEMS_PER_THREAD + i;
+				if (seedID < n_seeds) {
+				//		Overwrite original array
+					seed_a[seedID] = temp_storage.low.cache[thread_values[i]];
+				}
+		}
+	}
+	} 
+	else {
+			// prepare keys 
+			int64_t thread_keys[HIGH_ITEMS_PER_THREAD];
+			int thread_values[HIGH_ITEMS_PER_THREAD];
+			for(int i = 0; i < HIGH_ITEMS_PER_THREAD; ++i) {
+				int seedID = threadIdx.x * HIGH_ITEMS_PER_THREAD + i;
+				if(seedID < n_seeds) {
+					thread_keys[i] = seed_a[seedID].rbeg;
+					thread_values[i] = seedID;
+				}
+				else {
+					thread_keys[i] = INT64_MAX;
+					thread_values[i] = -1;
+				}
+			}
+			typedef cub::BlockRadixSort<int64_t, SORT_BLOCKDIM, HIGH_ITEMS_PER_THREAD, int> BlockRadixSortHigh;
+			BlockRadixSortHigh(temp_storage.high.sort).Sort(thread_keys, thread_values);
+			__shared__ mem_seed_t* S_new_seed_a;
+			if(threadIdx.x == 0) {
+				 void *d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, blockIdx.x & 31);
+            	 S_new_seed_a = (mem_seed_t*)CUDAKernelMalloc(d_buffer_ptr, n_seeds * sizeof(mem_seed_t), 8);
+
+			}
+			__syncthreads();
+			mem_seed_t* new_seed_a = S_new_seed_a;
+			for (int i = 0; i < HIGH_ITEMS_PER_THREAD; i++) {
+            int seedID = threadIdx.x * HIGH_ITEMS_PER_THREAD + i;
+            if (seedID < n_seeds) {
+                // Safety check
+                if (thread_values[i] == -1) { __trap(); } 
+                
+                // Copy sorted item
+                new_seed_a[seedID] = seed_a[thread_values[i]];
+            }
+        }
+		__syncthreads();
+		if(threadIdx.x == 0) {
+			d_seq_seeds[blockIdx.x].a = new_seed_a;
+		}
+
+	}	
+}
 __global__ void SEEDCHAINING_sortSeeds_kernel(
 	mem_seed_v *d_seq_seeds,
 	void *d_buffer_pools
@@ -3831,7 +3943,10 @@ void mem_align_GPU(process_data_t *process_data)
 
 	/* sort seeds by rbeg for each read */
 	if (bwa_verbose>=4)  fprintf(stderr, "[M::%-25s] **** [SEED CHAINING]: sorting seeds by rbeg ...\n", __func__);
-	
+	SEEDCHAINING_sortSeeds_unified_kernel <<< n_seqs, SORT_BLOCKDIM, 0, process_stream >>> (
+    d_seq_seeds, 
+    d_buffer_pools
+	);
 	SEEDCHAINING_sortSeeds_kernel <<< n_seqs, SORTSEEDSHIGH_BLOCKDIMX, 0, process_stream >>> (
 		d_seq_seeds,
 		d_buffer_pools);
