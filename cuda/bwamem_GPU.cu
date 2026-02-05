@@ -3947,9 +3947,6 @@ void mem_align_GPU(process_data_t *process_data)
     d_seq_seeds, 
     d_buffer_pools
 	);
-	SEEDCHAINING_sortSeeds_kernel <<< n_seqs, SORTSEEDSHIGH_BLOCKDIMX, 0, process_stream >>> (
-		d_seq_seeds,
-		d_buffer_pools);
 	gpuErrchk2( cudaPeekAtLastError() );
 	gpuErrchk2( cudaStreamSynchronize(process_stream) );
 
