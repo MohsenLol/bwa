@@ -2335,6 +2335,146 @@ __device__ inline static int search_lower_bound_rbeg(mem_seed_t *seeds, int seed
 	if (seeds[lower].rbeg >= rbeg_lower_bound) return lower;
 	else return upper;
 }
+#define SEEDCHAINING_CHAIN_BLOCKDIMX 256
+// d_seq_seeds : input seeds sorted by rbeg
+// d_chains : output chains
+// d_seqs : for getting l_seq
+__global__ void old_SEEDCHAINING_chain_kernel(
+	const mem_opt_t *d_opt,
+	const bntseq_t *d_bns,
+	bseq1_t *d_seqs,
+	mem_seed_v *d_seq_seeds,
+	mem_chain_v *d_chains,	// output
+	void *d_buffer_pools
+	)
+{
+	// seqID = blockIdx.x
+	int n_seeds = d_seq_seeds[blockIdx.x].n;
+	if(n_seeds > SORTSEEDSHIGH_MAX_NSEEDS)
+	{
+		printf("Error: number of seeds exceed maximum limit (%d) for chaining. SeqID=%d, n_seeds=%d\n", SORTSEEDSHIGH_MAX_NSEEDS, blockIdx.x, n_seeds);
+		//__trap();
+		n_seeds = SORTSEEDSHIGH_MAX_NSEEDS;
+	}
+	if (n_seeds==0){
+		d_chains[blockIdx.x].n = 0;
+		return;
+	}
+	mem_seed_t *seed_a = d_seq_seeds[blockIdx.x].a;	// seed array
+	int l_seq = d_seqs[blockIdx.x].l_seq;
+	// double linked-list representation of chains
+	// for each seed, store its preceding seed and suceeding seed on the chain
+	__shared__ int16_t S_preceding_seed[SORTSEEDSHIGH_MAX_NSEEDS];
+	__shared__ int S_suceeding_seed[SORTSEEDSHIGH_MAX_NSEEDS];
+	if (threadIdx.x==0) S_preceding_seed[0] = 0;	// seed 0 always head of a chain
+	for (int seedID=threadIdx.x; seedID<n_seeds; seedID+=blockDim.x) S_suceeding_seed[seedID] = INT_MAX;	// initial: no chain yet
+	//!!!!!! need syncthreads here
+
+	// for each seed (except 0), find nearest preceding chainable seed
+	// maximum gap between two seeds on a chain
+	// conditions for two seeds i,j to be chainable (i<j):
+	// 1. rid_i == rid_j
+	// 2. not crossing the boundary of circular and linear chromosomes
+	// 3. qbeg_j >= qbeg_i
+	// 4. rbeg_j >= rbeg_i
+	// 5. (qbeg_j - qbeg_i) - len_i < max_chain_gap
+	// 6. (rbeg_j - rbeg_i) - len_i < max_chain_gap
+	// 7. |(qbeg_j - qbeg_i) - (rbeg_j - rbeg_i)| <= bandwidth_gap
+	int max_chain_gap = d_opt->max_chain_gap;
+	int bandwidth_gap = d_opt->w;
+	int64_t l_pac = d_bns->l_pac;
+	for (int j=threadIdx.x+1; j<n_seeds; j+=blockDim.x){
+		if (seed_a[j].rid==-1){
+			S_preceding_seed[j] = -1; continue;
+		} else S_preceding_seed[j] = j;
+		int64_t rbeg_j = seed_a[j].rbeg;
+		// find lower bound for rbeg_i, lower value than which seeds cannot chain to seed j
+		int64_t rbeg_lower_bound = seed_a[j].rbeg - l_seq - max_chain_gap;
+		int seedID_lower_bound = search_lower_bound_rbeg(seed_a, j, rbeg_lower_bound);
+		for (int i=j-1; i>=seedID_lower_bound; i--){
+			int64_t rbeg_i = seed_a[i].rbeg;
+			// test condition 1 && 2
+			if (seed_a[i].rid != seed_a[j].rid || (rbeg_i<l_pac && rbeg_j>=l_pac)) break;	// seeds  are not on a same chromosome or one is circular other is linear and other is linear
+			// condition 4 is already satisfied by the lower bound
+			// test conditions 3, 5-7
+			if (seed_a[j].qbeg >= seed_a[i].qbeg &&
+				seed_a[j].qbeg - seed_a[i].qbeg - seed_a[i].len < max_chain_gap &&
+				rbeg_j - rbeg_i - seed_a[i].len < max_chain_gap &&
+				(seed_a[j].qbeg-seed_a[i].qbeg) - (rbeg_j-rbeg_i) <= bandwidth_gap &&
+				(rbeg_j-rbeg_i) - (seed_a[j].qbeg-seed_a[i].qbeg) <= bandwidth_gap)
+			{
+				S_preceding_seed[j] = i;
+				// mistake again here, need atomic for suceeding seed
+				
+				atomicMin(&S_suceeding_seed[i], j);
+				break;	// stop at the nearest preceding seed
+			}
+		}
+	}
+	__syncthreads();
+	// check the pairs of suceeding-preceeding. if unmatch, make seed head of chain
+	for (int j=threadIdx.x+1; j<n_seeds; j+=blockDim.x){
+		if (S_preceding_seed[j]==-1) continue;
+		if (S_suceeding_seed[S_preceding_seed[j]] != j) // not match
+			S_preceding_seed[j] = j;	// make seed j head of chain
+	}
+
+	// now create the chains based on the doubly linked-lists that we found
+	__shared__ int S_n_chains[1];
+	__shared__ mem_chain_t* S_chain_a[1];
+	if (threadIdx.x==0) {
+		void *d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, blockIdx.x%32);
+		S_chain_a[0] = (mem_chain_t*)CUDAKernelMalloc(d_buffer_ptr, n_seeds*sizeof(mem_chain_t), 8);
+		S_n_chains[0] = 0;
+	}
+	__syncthreads();
+	void *d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, (blockIdx.x * blockDim.x + threadIdx.x) % 32);
+	mem_chain_t *chain_a = S_chain_a[0];
+	for (int i=threadIdx.x; i<n_seeds; i+=blockDim.x){	// i = seedID
+		if (S_preceding_seed[i] == i){	// seed i is head of chain
+			// start a new chain
+			int chainID = atomicAdd(&S_n_chains[0], 1);
+			chain_a[chainID].pos = seed_a[i].rbeg;
+			chain_a[chainID].rid = seed_a[i].rid;
+			chain_a[chainID].is_alt = !!(d_bns->anns[seed_a[i].rid].is_alt);
+			// initialize seed array on this chain
+			int chain_m = 9;	// amount of pre-allocated memory for seeds array
+			int chain_n = 1;	// number of seed in this new chain
+			mem_seed_t *chain_seeds = (mem_seed_t*)CUDAKernelMalloc(d_buffer_ptr, chain_m*sizeof(mem_seed_t), 8);	// seeds array for this chain
+			chain_seeds[0] = seed_a[i];	// first seed on chain
+			int l = i;	// counting suceeding seeds
+			// add suceeding seeds
+			while (S_suceeding_seed[l]<INT_MAX){
+				l = S_suceeding_seed[l];
+				if (chain_n==chain_m){	// need to expand memory allocation
+					chain_m = chain_m<<1;
+					chain_seeds = (mem_seed_t*)CUDAKernelRealloc(d_buffer_ptr, chain_seeds, chain_m*sizeof(mem_seed_t), 8);
+				}
+				chain_seeds[chain_n++] = seed_a[l];
+			}
+			chain_a[chainID].n = chain_n;
+			chain_a[chainID].m = chain_m;
+			chain_a[chainID].seeds = chain_seeds;
+		}
+	}
+	__syncthreads();
+
+	// write output
+	if (threadIdx.x==0){
+		d_chains[blockIdx.x].n = S_n_chains[0];
+		d_chains[blockIdx.x].a = chain_a;
+	}
+
+// if (threadIdx.x==0)printf("seqID=%d, seeds=%p\n", blockIdx.x, d_chains[blockIdx.x].a[0].seeds);
+
+// if (threadIdx.x==0)
+// 	for (int i=0; i<d_chains[blockIdx.x].n; i++)
+// 		for (int j=0; j<d_chains[blockIdx.x].a[i].n; j++)
+// 			printf("new: seqID=%d, chainID=%d, seedID=%d, qbeg=%d, len=%d rbeg=%ld\n", blockIdx.x, i, j, d_chains[blockIdx.x].a[i].seeds[j].qbeg, d_chains[blockIdx.x].a[i].seeds[j].len, d_chains[blockIdx.x].a[i].seeds[j].rbeg);
+
+}
+
+
 /* seed chaining by using the parallel nearest neighbor search algorithm 
 	a block process all seeds of one read
 	Notations:
@@ -2343,7 +2483,6 @@ __device__ inline static int search_lower_bound_rbeg(mem_seed_t *seeds, int seed
      - preceding_seed[j] = -1 means seed is discarded
      - suceeding_seed[i] = INT_MAX means that seed i has no suceeding seed
  */
-#define INT_INVALID (-1)
 struct __align__(16) smallmem_seed_t {
     int64_t rbeg;
     int32_t qbeg;
@@ -3979,7 +4118,7 @@ void mem_align_GPU(process_data_t *process_data)
 
 	/* seed chaining */
 	if (bwa_verbose>=4)  fprintf(stderr, "[M::%-25s] **** [SEED CHAINING]: chaining seeds ...\n", __func__);
-	SEEDCHAINING_chain_kernel <<< n_seqs, SEEDCHAINING_CHAIN_BLOCKDIMX, 0, process_stream >>> (
+	old_SEEDCHAINING_chain_kernel <<< n_seqs, SEEDCHAINING_CHAIN_BLOCKDIMX, 0, process_stream >>> (
 		d_opt, d_bns, d_seqs, d_seq_seeds,
 		d_chains,	// output
 		d_buffer_pools);
