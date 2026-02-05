@@ -2343,7 +2343,12 @@ __device__ inline static int search_lower_bound_rbeg(mem_seed_t *seeds, int seed
      - preceding_seed[j] = -1 means seed is discarded
      - suceeding_seed[i] = INT_MAX means that seed i has no suceeding seed
  */
-
+#define INT16_INVALID ((int16_t)-1)
+struct __align__(16) smallmem_seed_t {
+    int64_t rbeg;
+    int32_t qbeg;
+    int32_t len;
+};
 #define SEEDCHAINING_CHAIN_BLOCKDIMX 256
 // d_seq_seeds : input seeds sorted by rbeg
 // d_chains : output chains
@@ -2367,13 +2372,18 @@ __global__ void SEEDCHAINING_chain_kernel(
 	mem_seed_t *seed_a_global = d_seq_seeds[blockIdx.x].a;	// seed array
 	// double linked-list representation of chains
 	// for each seed, store its preceding seed and suceeding seed on the chain
-	__shared__ mem_seed_t S_seeds[SORTSEEDSHIGH_MAX_NSEEDS];
+	__shared__ smallmem_seed_t S_seeds[SORTSEEDSHIGH_MAX_NSEEDS];
+	__shared__ int32_t rids[SORTSEEDSHIGH_MAX_NSEEDS];
 	__shared__ int16_t S_preceding_seed[SORTSEEDSHIGH_MAX_NSEEDS];
-	__shared__ int S_suceeding_seed[SORTSEEDSHIGH_MAX_NSEEDS];
+	__shared__ int16_t S_suceeding_seed[SORTSEEDSHIGH_MAX_NSEEDS];
 	// transfer seed data to shared memory
 	for(int i = threadIdx.x; i < n_seeds; i += blockDim.x) {
-			S_seeds[i] = seed_a_global[i];
-			S_suceeding_seed[i] = INT_MAX; // initial: no chain yet
+		// 128 aligned copy
+			int4* src_ptr = (int4*)seed_a_global;
+			int4  raw4int = src_ptr[i << 1];
+			*((int4*)&S_seeds[i]) = raw4int;
+			rids[i] = seed_a_global[i].rid;
+			S_suceeding_seed[i] = INT16_INVALID; // initial: no chain yet
 	}
 		// seed 0 always head of a chain
 	if (threadIdx.x==0) S_preceding_seed[0] = 0;
@@ -2394,9 +2404,10 @@ __global__ void SEEDCHAINING_chain_kernel(
 	// 6. (rbeg_j - rbeg_i) - len_i < max_chain_gap
 	// 7. |(qbeg_j - qbeg_i) - (rbeg_j - rbeg_i)| <= bandwidth_gap
 	for (int j=threadIdx.x+1; j<n_seeds; j+=blockDim.x){
-		mem_seed_t seed_j = S_seeds[j];
-		if (seed_j.rid==-1){
-			S_preceding_seed[j] = -1;
+		smallmem_seed_t seed_j = S_seeds[j];
+		int32_t rid_j = rids[j];
+		if (rid_j==-1){
+			S_preceding_seed[j] = INT16_INVALID;
 			continue;
 		} 
 		else {S_preceding_seed[j] = j;}
@@ -2405,13 +2416,14 @@ __global__ void SEEDCHAINING_chain_kernel(
 		const int seedID_lower_bound = 0;
 		// removed because of global memory access int seedID_lower_bound = search_lower_bound_rbeg(seed_a, j, rbeg_lower_bound);
 		for (int i=j-1; i>=seedID_lower_bound; i--){
-			mem_seed_t seed_i = S_seeds[i];
+			smallmem_seed_t seed_i = S_seeds[i];
 			int64_t rbeg_i = seed_i.rbeg;
 			int64_t rbeg_j = seed_j.rbeg;
+			int32_t rid_i  = rids[i];
 			// stop early if rbeg_i < rbeg_lower_bound
 			if(rbeg_i < rbeg_lower_bound) break;	// no more seeds can chain to seed j
 			// test condition 1 : Differenet reference ID
-			if (seed_i.rid != seed_j.rid) break;
+			if (rid_i != rid_j) break;
 			// test condtion 2 : circular/linear chromosome boundary crossing
 			if (rbeg_i<l_pac && rbeg_j>=l_pac) break;	// seeds  are not on a same chromosome or one is circular other is linear and other is linear
 			// condition 4 is already satisfied by the lower bound
@@ -2425,7 +2437,7 @@ __global__ void SEEDCHAINING_chain_kernel(
 				   abs(q_dist - (int)r_dist) <= bandwidth_gap)
 				{
 					S_preceding_seed[j] = i;
-					atomicMin(&S_suceeding_seed[i], j);
+					atomicMin( (unsigned short*)&S_suceeding_seed[i], (unsigned short)j);
 					break;	// stop at the nearest preceding seed
 				}
 			}
@@ -2457,11 +2469,12 @@ __global__ void SEEDCHAINING_chain_kernel(
 	for (int i=threadIdx.x; i<n_seeds; i+=blockDim.x){	// i = seedID
 		if (S_preceding_seed[i] == i){	// seed i is head of chain
 			// start a new chain
+			int32_t rid_head = rids[i];
 			int chainID = atomicAdd(&S_n_chains[0], 1);
-			mem_seed_t head_seed = S_seeds[i];
+			smallmem_seed_t head_seed = S_seeds[i];
 			chain_a[chainID].pos = head_seed.rbeg;
-			chain_a[chainID].rid = head_seed.rid;
-			chain_a[chainID].is_alt = !!(d_bns->anns[head_seed.rid].is_alt);
+			chain_a[chainID].rid = rid_head;
+			chain_a[chainID].is_alt = !!(d_bns->anns[rid_head].is_alt);
 			// initialize seed array on this chain
 			int chain_m = 16;	// amount of pre-allocated memory for seeds array (increased from 9 to 16 to reduce re-allocation)
 			int chain_n = 1;	// number of seed in this new chain
@@ -2470,14 +2483,14 @@ __global__ void SEEDCHAINING_chain_kernel(
 			int l = i;	// counting suceeding seeds
 			// add suceeding seeds
 			int next_l = S_suceeding_seed[l];
-			while (next_l < INT_MAX){
+			while (next_l != INT16_INVALID){
 				l = next_l;
 				
 				if (chain_n==chain_m){	// need to expand memory allocation
 					chain_m = chain_m<<1;
 					chain_seeds = (mem_seed_t*)CUDAKernelRealloc(d_buffer_ptr, chain_seeds, chain_m*sizeof(mem_seed_t), 8);
 				}
-				chain_seeds[chain_n++] = S_seeds[l];
+				chain_seeds[chain_n++] = seed_a_global[i];
 				next_l = S_suceeding_seed[l];
 			}
 			chain_a[chainID].n = chain_n;
@@ -4002,7 +4015,7 @@ void mem_align_GPU(process_data_t *process_data)
 
 	auto stop = high_resolution_clock::now();
 	auto duration = duration_cast<milliseconds>(stop-start);
-	perf_profile_file << duration.count() << ",";
+	perf_profile_file << duration.count() << ",";	
 	start = high_resolution_clock::now();
 	/* ----------------------- Fourth part of pipeline: Smith-Waterman extension --------------------------------------*/
 	/* pre-processing for SW extension: count number of seeds a read has, write seed_record to global mem, and allocate vector mem_alnreg_t for each read */
