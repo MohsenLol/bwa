@@ -35,7 +35,7 @@
 #define bwt_occ_intv(b, k) ((b)->bwt + ((k)>>7<<4))
 
 //started again
-__device__ static inline int __occ_aux(uint64_t y, int c)
+__device__ static inline int __occ_aux(uint64_t y, const int c)
 {
 	// reduce nucleotide counting to bits counting
 	y = ((c&2)? y : ~y) >> 1 & ((c&1)? y : ~y) & 0x5555555555555555ull;
@@ -44,7 +44,7 @@ __device__ static inline int __occ_aux(uint64_t y, int c)
 	return ((y + (y >> 4)) & 0xf0f0f0f0f0f0f0full) * 0x101010101010101ull >> 56;
 }
 
-__device__ __forceinline__ static bwtint_t bwt_occ_gpu(const bwt_t *bwt, bwtint_t k, ubyte_t c)
+__device__ __forceinline__ static bwtint_t bwt_occ_gpu(const bwt_t* __restrict__ bwt, bwtint_t k, ubyte_t c)
 {
 	bwtint_t n;
 	uint32_t *p, *end;
@@ -452,7 +452,7 @@ __device__ int bwt_seed_strategy1_gpu(const bwt_t *bwt, int len, const uint8_t *
 #define bwt_B0(b, k) (bwt_bwt(b, k)>>((~(k)&0xf)<<1)&3)
 
 // what is the previous position in bwt for position k  Ψ⁻¹ 
-__forceinline__ __device__ static inline bwtint_t bwt_invPsi(const bwt_t *bwt, bwtint_t k) // compute inverse CSA
+__forceinline__ __device__ static inline bwtint_t bwt_invPsi(const bwt_t* __restrict__ bwt, bwtint_t k) // compute inverse CSA
 {
 	// bwt->primary : position of $ in bwt
 	// convert to compacted bwt used in bwt_B0
@@ -467,7 +467,7 @@ __forceinline__ __device__ static inline bwtint_t bwt_invPsi(const bwt_t *bwt, b
 	return k == bwt->primary? 0 : x;
 }
 
-__forceinline__ __device__ bwtint_t bwt_sa_gpu(const bwt_t *bwt, bwtint_t k)
+__forceinline__ __device__ bwtint_t bwt_sa_gpu(const bwt_t* __restrict__ bwt, bwtint_t k)
 {
 
 	// sa how many steps we go backward
