@@ -452,7 +452,7 @@ __device__ int bwt_seed_strategy1_gpu(const bwt_t *bwt, int len, const uint8_t *
 #define bwt_B0(b, k) (bwt_bwt(b, k)>>((~(k)&0xf)<<1)&3)
 
 // what is the previous position in bwt for position k  Ψ⁻¹ 
-__forceinline__ __device__ static inline bwtint_t bwt_invPsi(const bwt_t* __restrict__ bwt, bwtint_t k) // compute inverse CSA
+__forceinline__ __device__ static bwtint_t bwt_invPsi(const bwt_t* __restrict__ bwt, bwtint_t k) // compute inverse CSA
 {
 	// bwt->primary : position of $ in bwt
 	// convert to compacted bwt used in bwt_B0
