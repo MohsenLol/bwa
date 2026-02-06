@@ -2839,7 +2839,7 @@ __global__ void CHAINFILTERING_filter_kernel(
 	int n_chn = d_chains[blockIdx.x].n;
 	if(n_chn == 0) return;
 	n_chn = min(MAX_N_CHAIN, n_chn);
-	mem_chain_t* __restrict__ a = d_chains[blockIdx.x].a;
+	mem_chain_t*  a = d_chains[blockIdx.x].a;
 	union SharedStorage {
         struct {
             uint16_t beg[MAX_N_CHAIN];
@@ -2938,7 +2938,7 @@ __global__ void CHAINFILTERING_filter_kernel(
 	}
 	__syncthreads();
 	n_chn = n_chn_shared; // update n_chn after filtering
-	mem_chain_t* __restrict__ new_a = d_chains[blockIdx.x].a;
+	mem_chain_t*  new_a = d_chains[blockIdx.x].a;
 	for(int i = tid; i < n_chn; i+= blockDim.x) {
 		new_a[i] = a[output_idx_map[i]];
 		
