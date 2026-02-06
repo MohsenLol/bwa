@@ -3182,7 +3182,7 @@ __global__ void SMITHWATERMAN_preprocessing1_kernel(
 	)
 {
 	int seqID = blockIdx.x*blockDim.x+threadIdx.x;	// ID of the read to process
-	if (seqID>n_seqs) return;
+	if (seqID>=n_seqs) return;
 	int chn_n = d_chains[seqID].n;					// n_chains of this read
 	mem_chain_t* chn_a = d_chains[seqID].a;			// chain array of this read
 
@@ -4283,8 +4283,6 @@ void mem_align_GPU(process_data_t *process_data)
 	perf_profile_file << duration.count() << ",";	
 	start = high_resolution_clock::now();
 
-		gpuErrchk2( cudaPeekAtLastError() );
-	gpuErrchk2( cudaStreamSynchronize(process_stream) );
 
 	/* ----------------------- Fourth part of pipeline: Smith-Waterman extension --------------------------------------*/
 	/* pre-processing for SW extension: count number of seeds a read has, write seed_record to global mem, and allocate vector mem_alnreg_t for each read */
