@@ -77,27 +77,34 @@ __device__ static int test_and_merge(const mem_opt_t *opt, int64_t l_pac, mem_ch
 
 #define chn_beg(ch) ((ch).seeds->qbeg)
 #define chn_end(ch) ((ch).seeds[(ch).n-1].qbeg + (ch).seeds[(ch).n-1].len)
-__device__ int mem_chain_weight(const mem_chain_t *c)
+// effective chain length of a seed chain
+// Chain Weight = min(total covered length, total covered refrence length)
+__forceinline__ __device__ int mem_chain_weight(const mem_chain_t* __restrict__ c)
 {
     int64_t endq = 0, endr = 0;
     int wq = 0, wr = 0;
-
-    for (int j = 0; j < c->n; ++j) {
-        const mem_seed_t *s = &c->seeds[j];
-
+	const int n = c->n;
+	const mem_seed_t* __restrict__ s_ptr = c->seeds;
+	#pragma unroll 4
+    for (int j = 0; j < n; ++j) {
+		int64_t s_rbeg = (int64_t)s_ptr->rbeg;
+		int64_t s_qbeg = (int64_t)s_ptr->qbeg;	
+		int s_len = s_ptr->len;
         // Query coverage
-        int64_t qend = (int64_t)s->qbeg + s->len;
-        wq += max((int64_t)0, qend - max(endq, (int64_t)s->qbeg));
-        endq = max(endq, qend);
+        int64_t qend = s_qbeg + s_len;
+        wq += llmax((int64_t)0, qend - llmax(endq, s_qbeg));
+        endq = llmax(endq, qend);
 
         // Reference coverage
-        int64_t rend = (int64_t)s->rbeg + s->len;
-        wr += max((int64_t)0, rend - max(endr, (int64_t)s->rbeg));
-        endr = max(endr, rend);
+        int64_t rend = (int64_t)s_rbeg + s_len;
+        wr += llmax((int64_t)0, rend - llmax(endr, s_rbeg));
+        endr = llmax(endr, rend);
+		++s_ptr;
     }
-
+	// Clamping using branchless equation
     int wfinal = min(wq, wr);
-    return wfinal < (1<<30) ? wfinal : (1<<30)-1;
+	const int limit = (1 << 30) - 1;
+	return min(wfinal, limit);
 }
 
 /*********************************
@@ -2746,26 +2753,28 @@ __global__ void mem_chain_kernel(
 
 // typedef struct { int n, m; mem_chain_t *a;  } mem_chain_v;
 // d_chains : array of mem_chain_v, each mem_chain_v corresponds to one read	
-__global__ void CHAINFILTERING_sortChains_kernel(mem_chain_v* d_chains, void* d_buffer_pools){
+__global__ void CHAINFILTERING_sortChains_kernel(mem_chain_v* __restrict__ d_chains, void* __restrict__ d_buffer_pools){
 // if (blockIdx.x!=3921) return;
 	// int seqID = blockIdx.x;
 	int n_chn = d_chains[blockIdx.x].n;
 	if (n_chn==0) return;
 	void* d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, blockIdx.x & 31);
-	mem_chain_t* a = d_chains[blockIdx.x].a;	// array of chains
-
-	extern __shared__ int SM[];			// shared mem, pre-allocated
-	mem_chain_t** new_a_SM = (mem_chain_t**)SM;	// new array of chains on global mem
-	uint16_t* w = (uint16_t*)&new_a_SM[1];		// array of weights
-	uint16_t* new_i = (uint16_t*)&w[MAX_N_CHAIN]; // array of sorted chain index
-
+	mem_chain_t* __restrict__ a = d_chains[blockIdx.x].a;	// array of chains
+	typedef cub::BlockRadixSort<uint32_t, SORTCHAIN_BLOCKDIMX, NKEYS_EACH_THREAD, int> BlockRadixSort;
+	extern __shared__ char smem_raw[];			// shared mem, pre-allocated
+	union SharedStorage
+	{
+		uint16_t w[MAX_N_CHAIN]; // array of sorted chain index
+		typename BlockRadixSort::TempStorage sort_storage;
+	};
+	SharedStorage* shared_storage = (SharedStorage*)smem_raw;
 	// calculate weight of each chain
 	const int n_iter = MAX_N_CHAIN/SORTCHAIN_BLOCKDIMX;
-
+	// load weight from global mem to shared mem
 	#pragma unroll
 	for (int k = 0; k < n_iter; ++k) {
 		int i = k * blockDim.x + threadIdx.x;
-		w[i] = (i < n_chn) ? mem_chain_weight(&a[i]) : 0;
+		shared_storage->w[i] = (i < n_chn) ? mem_chain_weight(&a[i]) : 0;
 	}
 
 	__syncthreads();
@@ -2776,35 +2785,32 @@ __global__ void CHAINFILTERING_sortChains_kernel(mem_chain_v* d_chains, void* d_
 		#pragma unroll
 		for (int k=0; k<NKEYS_EACH_THREAD; k++){
 			thread_values[k] = base_thread+k;
-			thread_keys[k] = w[base_thread+k];
+			thread_keys[k] = shared_storage->w[base_thread+k];
 		}
 	}
 	__syncthreads();
 	// sort weights
-	typedef cub::BlockRadixSort<uint32_t, SORTCHAIN_BLOCKDIMX, NKEYS_EACH_THREAD, int> BlockRadixSort;
-	BlockRadixSort().SortDescending(thread_keys, thread_values);
-	// transfer sorted index array (thread_values) to shared mem
-	{
-		int base_thread = threadIdx.x*NKEYS_EACH_THREAD;
-		#pragma unroll
-		for (int k=0; k<NKEYS_EACH_THREAD; k++){
-		new_i[base_thread+k] = thread_values[k];
-		}
-	}
+	
+	BlockRadixSort(shared_storage->sort_storage).SortDescending(thread_keys, thread_values);
+	//(removed : useless transfer) transfer sorted index array (thread_values) to shared mem
+	
 
 	// export output
+	 __shared__ mem_chain_t* new_a_ptr;
 	if (threadIdx.x==0){
-		*new_a_SM = (mem_chain_t*)CUDAKernelMalloc(d_buffer_ptr, n_chn*sizeof(mem_chain_t), 8);
-		d_chains[blockIdx.x].a = *new_a_SM;
+		new_a_ptr = (mem_chain_t*)CUDAKernelMalloc(d_buffer_ptr, n_chn*sizeof(mem_chain_t), 8);
+		d_chains[blockIdx.x].a = new_a_ptr;
 	}
 	__syncthreads();
-	mem_chain_t* new_a = *new_a_SM;
+	mem_chain_t* __restrict__ new_a = new_a_ptr;
+	int output_base_idx = threadIdx.x * NKEYS_EACH_THREAD;
 	#pragma unroll
-	for (int k=0; k<n_iter; k++){
-		int i = k*blockDim.x + threadIdx.x;	// chainID to work on
+	for (int k=0; k<NKEYS_EACH_THREAD; k++){
+		int i = output_base_idx + k;	// chainID to work on
 		if (i<n_chn){
-			new_a[i] = a[new_i[i]];
-			new_a[i].w = w[new_i[i]];
+			int  sorted_idx = thread_values[k];
+			new_a[i] = a[sorted_idx];
+			new_a[i].w = (uint16_t)thread_keys[k];
 		}
 	}
 }
