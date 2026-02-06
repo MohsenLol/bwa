@@ -2884,8 +2884,8 @@ __global__ void CHAINFILTERING_filter_kernel(
 			bool suppressed_by_undecidedchain = false;
 			for(int j = 0; j < i; ++j) {
 				uint8_t j_status = s_kept[j];
-				int j_w = s_w[j];
 				if(j_status == DROP_IT) continue;
+				int j_w = s_w[j];
 				// test overlap //
 				int j_beg = s_beg[j];
 				int j_end = s_end[j];
@@ -2897,9 +2897,8 @@ __global__ void CHAINFILTERING_filter_kernel(
 					int min_l = min(i_len, j_len);
 					if(e_min - b_max >= min_l * opt_mask_level && min_l < opt_max_gap &&
 					   i_w < j_w * opt_drop_ratio && j_w- i_w >= opt_min_seed_len_shift) { // significant overlap
-						should_drop = (j_status == KEEP_IT); // drop if j is definitely kept, otherwise wait for j's status to be determined
-						suppressed_by_undecidedchain = !should_drop;
-						break;
+						if (j_status == KEEP_IT){should_drop = true; break;} // drop if j is definitely kept, otherwise wait for j's status to be determined
+						suppressed_by_undecidedchain = true; // if should_drop is not triggered, this flag will cause i to wait for earlier chains to be determined instead of being kept immediately
 					}
 					
 				}
@@ -2939,10 +2938,9 @@ __global__ void CHAINFILTERING_filter_kernel(
 	__syncthreads();
 	n_chn = n_chn_shared; // update n_chn after filtering
 	mem_chain_t*  new_a = d_chains[blockIdx.x].a;
-	if(new_a)
-	for(int i = tid; i < n_chn; i+= blockDim.x) {
+	if(new_a  != nullptr)
+	 for(int i = tid; i < n_chn; i+= blockDim.x) {
 		new_a[i] = a[output_idx_map[i]];
-		
 	}
 }	
 __global__ void CHAINFILTERING_filter_kernel_old(
