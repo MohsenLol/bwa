@@ -2889,7 +2889,7 @@ __global__ void CHAINFILTERING_filter_kernel(
 				// test overlap //
 				int j_beg = s_beg[j];
 				int j_end = s_end[j];
-				int b_max = llmax(j_beg, i_beg);
+				int b_max = max(j_beg, i_beg);
                 int e_min = min(j_end, i_end);
 				//
 				if(e_min > b_max &&(!i_alt || s_is_alt[j])) {
