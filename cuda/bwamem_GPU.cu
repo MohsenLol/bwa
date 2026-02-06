@@ -2924,7 +2924,7 @@ __global__ void CHAINFILTERING_filter_kernel(
 			}
 		}
 		mem_chain_t* new_ptr = nullptr;
-		if(count > 0) {
+		if(count >= 0) {
 			// allocation new space for filtered chains
 			void* d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, blockIdx.x & 31);
 			new_ptr = (mem_chain_t*)CUDAKernelMalloc(d_buffer_ptr, count * sizeof(mem_chain_t), 8);
