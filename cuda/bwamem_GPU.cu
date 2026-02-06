@@ -2846,7 +2846,7 @@ __global__ void CHAINFILTERING_filter_kernel(
             uint16_t end[MAX_N_CHAIN];
             uint16_t w[MAX_N_CHAIN];
             uint8_t is_alt[MAX_N_CHAIN];
-            uint8_t kept[MAX_N_CHAIN]; // Must be volatile for spin-loop visibility
+            volatile uint8_t kept[MAX_N_CHAIN]; // Must be volatile for spin-loop visibility
         } data;
     };
 	extern __shared__ char smem_raw[];
@@ -4282,6 +4282,10 @@ void mem_align_GPU(process_data_t *process_data)
 	auto duration = duration_cast<milliseconds>(stop-start);
 	perf_profile_file << duration.count() << ",";	
 	start = high_resolution_clock::now();
+
+		gpuErrchk2( cudaPeekAtLastError() );
+	gpuErrchk2( cudaStreamSynchronize(process_stream) );
+
 	/* ----------------------- Fourth part of pipeline: Smith-Waterman extension --------------------------------------*/
 	/* pre-processing for SW extension: count number of seeds a read has, write seed_record to global mem, and allocate vector mem_alnreg_t for each read */
 	if (bwa_verbose>=4) fprintf(stderr, "[M::%-25s] **** [SMITHEWATERMAN]: preprocessing1 ... ", __func__);
