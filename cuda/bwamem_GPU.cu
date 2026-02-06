@@ -3134,6 +3134,105 @@ __global__ void mem_chain_flt_kernel(const mem_opt_t *opt,
 }
 // For every read, the kernel retrieves its chain list and iterates through each chain. It recomputes the Smith–Waterman score for every seed using mem_seed_sw, discards seeds whose scores fall below the computed threshold, and compacts the surviving seeds back into the chain in place. The result is a per‑read, per‑chain filtering pass that retains only high‑scoring seeds.
 
+#define FLT_BLOCK_SIZE 128
+#define MAX_QUERY_SMEM 4096
+__global__ void CHAINFILTERING_flt_chained_seeds_kernel_new(
+ const mem_opt_t* __restrict__ d_opt, 
+    const bntseq_t* __restrict__ d_bns, 
+    const uint8_t* __restrict__ d_pac, 
+    const bseq1_t* __restrict__ d_seqs,
+    mem_chain_v* __restrict__ d_chains, 
+    int n, // number of reads
+    void* __restrict__ d_buffer_pools
+	)
+{
+	int seqID = blockIex.x;
+	if(seqID >= n) return;
+	extern __shared__ char smem_raw[];			// shared mem, pre-allocated
+	// load sequence Data 
+	// Cache quary into shared memory if fits
+	uint8_t* query_ptr = (uint8_t*)d_seqs[seqID].seq;
+	int l_query = d_seqs[seqID].l_seq;
+	uint8_t* s_query = (uint8_t*)smem_raw;
+	bool use_smem_query = (l_query < MAX_QUERY_SMEM);
+	if(use_smem_query) {
+		for(int i = threIdx.x; i < l_query; i+= blockDim.x) {
+			s_query[i] = query_ptr[i];
+		}
+		query_ptr = s_query;
+	}
+	// shared memory consited of query and cub::blockscan:memory
+	size_t query_offset = use_smem_query ? ((l_query + 15) / 16) * 16 : 0;
+	typedef cub::BlockScan<int, FLT_BLOCK_SIZE> BlockScan;
+	__shared__ typename BlockScan::TempStorage scan_storage;;
+
+	void* d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, threadIdx.x & 31);	// set buffer pool	
+	double min_l = d_opt->min_chain_weight ? MEM_HSP_COEF * d_opt->min_chain_weight :
+				   							 MEM_MINSC_COEF * log((float)l_query);
+	if(min_l > MEM_SEEDSW_COEF * l_query) return; // don't run the following for short reads
+	int min_HSP_score = (int) (d_opt->a * min_l + 0.499);
+	int opt_a = d_opt->a;
+	__syncthreads();
+	// process Chains
+	mem_chain_t* chains_arr = d_chains[seqID].a;
+	int n_chn = d_chains[seqID].n;
+	for(int i = 0; i < n_chn; ++i) {
+		mem_chain_t* c = &chain_arr[i];
+		int n_seeds = c->n;
+		int seeds_kept_total = 0;
+		// process seeds in tiles of BLOCK_SIZE
+		for(int batch_base = 0; batch_base < n_seeds; batch_base += blockDim.x) {
+			int seed_id = threadIdx.x + batch_base;
+			mem_seed_t current_seed;
+			bool keep = false;
+			if(seed_id < n_seeds) {
+				current_seed = c->seeds[seed_id];
+				current_seed.score = mem_seed_sw(d_opt, d_bns, d_pac, l_query, query_ptr, &current_seed, d_buffer_ptr);
+				keep = (current_seed.score < 0 || current_seed.score >= min_HSP_score);
+				if(keep) { //fix negative socre
+					current_seed.score = (current_seed.score < 0) ? current_seed.len * opt_a : current_seed.score;
+				}
+				
+			}
+		}
+			// count how many seeds to keep in this batch
+			int seeds_kept_batch = keep ? 1 : 0;
+			int seeds_kept_batch_total = BlockScan(scan_storage).InclusiveSum(seeds_kept_batch);
+			if(threadIdx.x == blockDim.x - 1) {
+				seeds_kept_total += seeds_kept_batch_total;
+			}
+			__syncthreads();
+			// compact seeds in-place
+			if(keep) {
+				int output_pos = batch_base + seeds_kept_batch_total - 1; // -1 because InclusiveSum
+				c->seeds[output_pos] = current_seed;
+			}
+			__syncthreads();
+		}
+	}
+	mem_chain_t* a = d_chains[i].a;
+	int n_chn = d_chains[i].n;
+	uint8_t* query = (uint8_t*)d_seqs[i].seq;
+	int l_query = d_seqs[i].l_seq;
+
+	double min_l = d_opt->min_chain_weight? MEM_HSP_COEF * d_opt->min_chain_weight : MEM_MINSC_COEF * log((float)l_query);
+	int j, k, min_HSP_score = (int)(d_opt->a * min_l + .499);
+	if (min_l > MEM_SEEDSW_COEF * l_query) return; // don't run the following for short reads
+	for (i = 0; i < n_chn; ++i) {
+		mem_chain_t *c = &a[i];
+		for (j = k = 0; j < c->n; ++j) {
+			mem_seed_t *s = &c->seeds[j];
+			s->score = mem_seed_sw(d_opt, d_bns, d_pac, l_query, query, s, d_buffer_ptr);
+			if (s->score < 0 || s->score >= min_HSP_score) {
+				s->score = s->score < 0? s->len * d_opt->a : s->score;
+				c->seeds[k++] = *s;
+			}
+		}
+		c->n = k;
+	}
+}
+
+
 __global__ void CHAINFILTERING_flt_chained_seeds_kernel(
 	const mem_opt_t *d_opt, const bntseq_t *d_bns, const uint8_t *d_pac, const bseq1_t *d_seqs,
 	mem_chain_v *d_chains, 	// input and output
