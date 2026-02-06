@@ -2916,15 +2916,16 @@ __global__ void CHAINFILTERING_filter_kernel(
 	}
 	 __syncthreads();
 	uint16_t* output_idx_map = s_end; // used s_end space as index map to save sapce
+	__shared__ int  n_chn_shared;
 	if(tid == 0) {
 		int count = 0;
 		for(int i = 0; i < n_chn; ++i) {
 			if(s_kept[i] == KEEP_IT) {
-				output_idx_map[i] = count++;
+				output_idx_map[count++] = i;
 			}
 		}
 		mem_chain_t* new_ptr = nullptr;
-		if(count >= 0) {
+		if(count > 0) {
 			// allocation new space for filtered chains
 			void* d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, blockIdx.x & 31);
 			new_ptr = (mem_chain_t*)CUDAKernelMalloc(d_buffer_ptr, count * sizeof(mem_chain_t), 8);
@@ -2933,19 +2934,15 @@ __global__ void CHAINFILTERING_filter_kernel(
 		} 
 		d_chains[blockIdx.x].a = new_ptr;
 		d_chains[blockIdx.x].n = count;
-      
+		n_chn_shared = count;
 	}
 	__syncthreads();
+	n_chn = n_chn_shared; // update n_chn after filtering
 	mem_chain_t* __restrict__ new_a = d_chains[blockIdx.x].a;
 	for(int i = tid; i < n_chn; i+= blockDim.x) {
-		if(s_kept[i] == KEEP_IT) {
-			int dest_idx = output_idx_map[i];
-			new_a[dest_idx] = a[i];
-		}
+		new_a[i] = a[output_idx_map[i]];
+		
 	}
-
-
-
 }	
 __global__ void CHAINFILTERING_filter_kernel_old(
 	const mem_opt_t *opt, 
