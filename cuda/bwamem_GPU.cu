@@ -3147,7 +3147,7 @@ struct FltSharedLayout {
     // Last Member of query
     uint8_t query_cache[0];
 };
-
+/*
 __global__ void CHAINFILTERING_flt_chained_seeds_kernel_new(
  const mem_opt_t* __restrict__ d_opt, 
     const bntseq_t* __restrict__ d_bns, 
@@ -3242,7 +3242,7 @@ __global__ void CHAINFILTERING_flt_chained_seeds_kernel_new(
 		}
 		c->n = k;
 }
-
+*/
 
 
 __global__ void CHAINFILTERING_flt_chained_seeds_kernel(
