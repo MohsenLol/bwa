@@ -2846,7 +2846,7 @@ __global__ void CHAINFILTERING_filter_kernel(
             uint16_t end[MAX_N_CHAIN];
             uint16_t w[MAX_N_CHAIN];
             uint8_t is_alt[MAX_N_CHAIN];
-            volatile uint8_t kept[MAX_N_CHAIN]; // Must be volatile for spin-loop visibility
+            uint8_t kept[MAX_N_CHAIN]; // Must be volatile for spin-loop visibility
         } data;
     };
 	extern __shared__ char smem_raw[];
@@ -4262,7 +4262,7 @@ void mem_align_GPU(process_data_t *process_data)
 	/* filter chains */
 	if (bwa_verbose>=4) fprintf(stderr, "[M::%-25s] **** [CHAIN FILTERING]: Launch kernel mem_chain_flt ...\n", __func__);
 	//filters and prunes MEM chains on the GPU—one block per read—using shared memory to drop weak or redundant chains before alignment extension.
-	CHAINFILTERING_filter_kernel_old <<< n_seqs, CHAIN_FLT_BLOCKSIZE, MAX_N_CHAIN*(3*sizeof(uint16_t)+2 * sizeof(uint8_t)), process_stream >>> (
+	CHAINFILTERING_filter_kernel <<< n_seqs, CHAIN_FLT_BLOCKSIZE, MAX_N_CHAIN*(3*sizeof(uint16_t)+2 * sizeof(uint8_t)), process_stream >>> (
 			d_opt, 
 			d_chains, 	// input and output
 			d_buffer_pools);
