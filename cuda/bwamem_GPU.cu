@@ -2939,6 +2939,7 @@ __global__ void CHAINFILTERING_filter_kernel(
 	__syncthreads();
 	n_chn = n_chn_shared; // update n_chn after filtering
 	mem_chain_t*  new_a = d_chains[blockIdx.x].a;
+	if(new_a)
 	for(int i = tid; i < n_chn; i+= blockDim.x) {
 		new_a[i] = a[output_idx_map[i]];
 		
