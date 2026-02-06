@@ -2827,7 +2827,127 @@ __global__ void CHAINFILTERING_sortChains_kernel(mem_chain_v* __restrict__ d_cha
 #define SET_KEPT(i, val) (chn_info_SM[i]&=0b11111100)|=val
 #define GET_IS_ALT(i) ((chn_info_SM[i]&0x4)>>2) 	// 3rd bit
 #define SET_IS_ALT(i, val) (chn_info_SM[i]&=0b11111011)|=(val<<2)
+
+#define KEEP_IT (3)
+#define DROP_IT (0)
+#define WAIT_IT (1)
 __global__ void CHAINFILTERING_filter_kernel(
+    const mem_opt_t* __restrict__ opt, 
+    mem_chain_v* __restrict__ d_chains, 
+    void* __restrict__ d_buffer_pools)
+{
+	int n_chn = d_chains[blockIdx.x].n;
+	if(n_chn == 0) return;
+	n_chn = min(MAX_N_CHAIN, n_chn);
+	mem_chain_t* __restrict__ a = d_chains[blockIdx.x].a;
+	union SharedStorage {
+        struct {
+            uint16_t beg[MAX_N_CHAIN];
+            uint16_t end[MAX_N_CHAIN];
+            uint16_t w[MAX_N_CHAIN];
+            uint8_t is_alt[MAX_N_CHAIN];
+            volatile uint8_t kept[MAX_N_CHAIN]; // Must be volatile for spin-loop visibility
+        } data;
+    };
+	extern __shared__ char smem_raw[];
+	SharedStorage* smem = (SharedStorage*)smem_raw;
+	uint16_t* s_beg = smem->data.beg;
+    uint16_t* s_end = smem->data.end;
+    uint16_t* s_w   = smem->data.w;
+    volatile uint8_t* s_kept = smem->data.kept;
+    uint8_t* s_is_alt = smem->data.is_alt;
+	const int tid = threadIdx.x;
+	for(int i = tid; i < n_chn; i+= blockDim.x){
+		mem_chain_t c = a[i];
+		s_beg[i] = chn_beg(c);
+		s_end[i] = chn_end(c);
+		s_w[i] = c.w;
+		s_is_alt[i] = c.is_alt;
+
+		s_kept[i] = (i == 0) ? KEEP_IT : WAIT_IT; // First chain always kept, others wait
+	}
+	__syncthreads();
+	 // Pre-load optimization constants
+    const int opt_mask_level = opt->mask_level;
+    const int opt_max_gap = opt->max_chain_gap;
+    const int opt_min_seed_len_shift = opt->min_seed_len << 1;
+    const float opt_drop_ratio = opt->drop_ratio;
+	for(int i = tid; i < n_chn; i+= blockDim.x) {
+		int i_beg = s_beg[i];
+		int i_end = s_end[i];
+		int i_w   = s_w[i];
+		int i_alt = s_is_alt[i];
+		int i_len = i_end - i_beg;
+		// drop chain if overlapped with earliar(more score) chains
+		while(s_kept[i] == WAIT_IT) {
+			bool should_drop = false;
+			bool suppressed_by_undecidedchain = false;
+			for(int j = 0; j < i; ++j) {
+				uint8_t j_status = s_kept[j];
+				int j_w = s_w[j];
+				if(j_status == DROP_IT) continue;
+				// test overlap //
+				int j_beg = s_beg[j];
+				int j_end = s_end[j];
+				int b_max = llmax(j_beg, i_beg);
+                int e_min = min(j_end, i_end);
+				//
+				if(e_min > b_max &&(!i_alt || s_is_alt[j])) {
+					int j_len = j_end - j_beg;
+					int min_l = min(i_len, j_len);
+					if(e_min - b_max >= min_l * opt_mask_level && min_l < opt_max_gap &&
+					   i_w < j_w * opt_drop_ratio && j_w- i_w >= opt_min_seed_len_shift) { // significant overlap
+						should_drop = (j_status == KEEP_IT); // drop if j is definitely kept, otherwise wait for j's status to be determined
+						suppressed_by_undecidedchain = !should_drop;
+						break;
+					}
+					
+				}
+			}
+			if(should_drop) {
+				s_kept[i] = DROP_IT;
+				break;
+			}
+			else if(!suppressed_by_undecidedchain) {
+				s_kept[i] = KEEP_IT;
+			}
+			// else wait for earliar undecided elements to be determined. => spin wait
+		}
+	}
+	 __syncthreads();
+	uint16_t* output_idx_map = s_end; // used s_end space as index map to save sapce
+	if(tid == 0) {
+		int count = 0;
+		for(int i = 0; i < n_chn; ++i) {
+			if(s_kept[i] == KEEP_IT) {
+				output_idx_map[i] = count++;
+			}
+		}
+		mem_chain_t* new_ptr = nullptr;
+		if(count > 0) {
+			// allocation new space for filtered chains
+			void* d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, blockIdx.x & 31);
+			new_ptr = (mem_chain_t*)CUDAKernelMalloc(d_buffer_ptr, count * sizeof(mem_chain_t), 8);
+			
+			// Update Global Pointer
+		} 
+		d_chains[blockIdx.x].a = new_ptr;
+		d_chains[blockIdx.x].n = count;
+      
+	}
+	__syncthreads();
+	mem_chain_t* __restrict__ new_a = d_chains[blockIdx.x].a;
+	for(int i = tid; i < n_chn; i+= blockDim.x) {
+		if(s_kept[i] == KEEP_IT) {
+			int dest_idx = output_idx_map[i];
+			new_a[dest_idx] = a[i];
+		}
+	}
+
+
+
+}	
+__global__ void CHAINFILTERING_filter_kernel_old(
 	const mem_opt_t *opt, 
 	mem_chain_v *d_chains, 	// input and output
 	void* d_buffer_pools)
