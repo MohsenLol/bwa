@@ -3147,7 +3147,8 @@ struct FltSharedLayout {
     // Last Member of query
     uint8_t query_cache[0];
 };
-/*
+
+
 __global__ void CHAINFILTERING_flt_chained_seeds_kernel_new(
  const mem_opt_t* __restrict__ d_opt, 
     const bntseq_t* __restrict__ d_bns, 
@@ -3158,9 +3159,153 @@ __global__ void CHAINFILTERING_flt_chained_seeds_kernel_new(
     void* __restrict__ d_buffer_pools
 	)
 {
-	int seqID = blockIex.x;
-	if(seqID >= n) return;
-	extern __shared__ char smem_raw[];			// shared mem, pre-allocated
+	int warp_id_in_block = threadIdx.x / WARPSIZE;
+	int lane_id = threadIdx.x % WARPSIZE;
+	int block_id = blockIdx.x;
+	int read_idx = block_id * (blockDim.x / WARPSIZE) + warp_id_in_block; // each warp processes one read
+	if(read_idx >= n) return; // out of bound check
+	int n_chn = d_chains[read_idx].n;
+	if(n_chn == 0) return; // no need to filter
+	int l_query = d_seqs[read_idx].l_seq;
+	const uint8_t* __restrict__ query = (uint8_t*)d_seqs[read_idx].seq;
+	// compute thresholds uniformly for 
+	float min_l_val = d_opt->min_chain_weight ? 
+	      MEM_HSP_COEF * d_opt->min_chain_weight 
+		: MEM_MINSC_COEF * logf((float)l_query);
+	
+	// short read early exit 
+	if(min_l > MEM_SEEDS_COEF * l_query) return;
+    int min_HSP_score = (int)(d_opt->a * min_l + .499f);
+
+	void* d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, lane_id);
+	mem_chain_t* chains_base = d_chains[read_idx].a;
+	// itterative over Chains 
+	for(int i = 0; i < n_chn; ++i) {
+		mem_chain_t* c = &chains_base[i];
+		int n_seeds = c->n;
+		int write_index = 0;
+		for(int base_j = 0; base_j < n_seeds; base_j += WARP_SIZE) {
+			int j = lane_id + base_j;
+			bool is_valid = (j < n_seeds);
+			bool keep_seed = false;
+			mem_seed_t current_seed;
+			if(is_valid) {
+				current_seed = c->seeds[j];
+				current_seed.score = mem_seed_sw(d_opt, d_bns, d_pac, l_query, query, &current_seed, d_buffer_ptr);
+				// current_seed.score can be negative because mem_seed_sw returns -1 for seeds that are too short after extension, but we want to keep those seeds and assign them a score based on their length 
+				keep_seed = (current_seed.score < 0 || current_seed.score >= min_HSP_score);
+				if(keep_seed) { //fix negative socre
+					current_seed.score = (current_seed.score < 0) ? current_seed.len * d_opt->a : current_seed.score;
+				}
+				// else discard seed by not copying to current_seed
+				// keep_seed flag will be used later for compaction
+			}
+			// scan-compaction using _ballot_sync
+			unsigned int mask = __ballot_sync(0xFFFFFFFF, keep_seed);
+			// count predecessors that are kept in this warp to determine the write position for each thread's seed
+			unsigned int predecessors = __popc(mask & ((1u << lane_id) - 1));
+			int local_offset = predecessors;
+			if(keep_seed) {
+				int output_pos = write_index + local_offset; // position to write in compacted array
+				c->seeds[output_pos] = current_seed; // write the seed to the compacted position
+			}
+			// ensure all threads have updated write_index before next iteration
+			if(lane_id == 0)
+				write_index += __popc(mask); // update write_index for the next batch
+			write_index = __shfl_sync(0xFFFFFFFF, write_index, 0);
+			
+		}
+			mem_seed_t current_seed;
+			bool keep = false;
+			if(seed_id < n_seeds) {
+				current_seed = c->seeds[seed_id];
+				current_seed.score = mem_seed_sw(d_opt, d_bns, d_pac, l_query, query, &current_seed, d_buffer_ptr);
+				keep = (current_seed.score < 0 || current_seed.score >= min_HSP_score);
+				if(keep) { //fix negative socre
+					current_seed.score = (current_seed.score < 0) ? current_seed.len * d_opt->a : current_seed.score;
+				}
+				
+			}
+			// count how many seeds to keep in this batch
+			int seeds_kept_batch = keep ? 1 : 0;
+			int seeds_kept_batch_total = cub::BlockScan<int, FLT_BLOCK_SIZE>(shared_storage->scan_storage).InclusiveSum(seeds_kept_batch);
+			if(lane_id == FLT_BLOCK_SIZE - 1) {
+				write_index += seeds_kept_batch_total;
+			}
+			__syncthreads();
+			// compact seeds in-place
+			if(keep) {
+				int output_pos = base_j + seeds_kept_batch_total - 1; // -1 because InclusiveSum
+				c->seeds[output_pos] = current_seed;
+			}
+			__syncthreads();
+		}
+		// process seeds in tiles of BLOCK_SIZE
+		for(int batch_base = 0; batch_base < n_seeds; batch_base += FLT_BLOCK_SIZE) {
+			int seed_id = lane_id + batch_base;
+			mem_seed_t current_seed;
+			bool keep = false;
+			if(seed_id < n_seeds) {
+				current_seed = c->seeds[seed_id];
+				current_seed.score = mem_seed_sw(d_opt, d_bns, d_pac, l_query, query, &current_seed, d_buffer_ptr);
+				keep = (current_seed.score < 0 || current_seed.score >= min_HSP_score);
+				if(keep) { //fix negative socre
+					current_seed.score = (current_seed.score < 0) ? current_seed.len * d_opt->a : current_seed.score;
+				}
+				
+			}
+			// count how many seeds to keep in this batch
+			int seeds_kept_batch = keep ? 1 : 0;
+			int seeds_kept_batch_total = cub::BlockScan<int, FLT_BLOCK_SIZE>(shared_storage->scan_storage).InclusiveSum(seeds_kept_batch);
+			if(lane_id == FLT_BLOCK_SIZE - 1) {
+				seeds_kept_total += seeds_kept_batch_total;
+			}
+			__syncthreads();
+			// compact seeds in-place
+			if(keep) {
+				int output_pos = batch_base + seeds_kept_batch_total - 1; // -1 because InclusiveSum
+				c->seeds[output_pos] = current_seed;
+			}
+			__syncthreads();
+		}
+		c->n = seeds_kept_total; // update seed count after compaction
+	}
+	__syncwarp(); 
+	// process chains 
+	
+
+
+	uint8_t* query_ptr = (uint8_t*)seq->seq;
+	if(use_smem_query) {
+		query_ptr = smem->query_cache;
+		for(int i = tid; i < l_query; i+= blockDim.x) {
+			query_ptr[i] = seq->seq[i];
+		}
+	}
+	// calculate constants Once per Block using thread 0
+	if(tid == 0) {
+		double min_l = d_opt->min_chain_weight ? 
+		      MEM_HSP_COEF * d_opt->min_chain_weight 
+            : MEM_MINSC_COEF * logf((float)l_query);
+		
+        // Use a very large score to effectively disable the chain if it should be skipped
+        smem->constants.min_HSP_score = (min_l > MEM_SEEDSW_COEF * l_query)
+            ? 0x7FFFFFFF 
+            : (int)(d_opt->a * min_l + .499);
+		smem->constants.opt_a = d_opt->a;
+	}	
+	void* d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, tid & 31);
+	__syncthreads(); // ensure query cache and constants are visible to all
+	if(smem->constants.min_HSP_score == 0x7FFFFFFF ) return; // exit early if skip condition is met
+	mem_chain_t* chains_arr = d_chains[seq_id].a;
+	const int n_chn = d_chains[seq_id].n;
+	// whole iteratation through each chain 
+	for(int i = 0; i < n_chn; ++i) {
+		mem_chain_t* c = &chains_arr[i];
+		const int n_seeds = c->n;
+		int  seeds_kept_total = 0;
+	for(in)
+	}
 	// load sequence Data 
 	// Cache quary into shared memory if fits
 	uint8_t* query_ptr = (uint8_t*)d_seqs[seqID].seq;
@@ -3242,7 +3387,7 @@ __global__ void CHAINFILTERING_flt_chained_seeds_kernel_new(
 		}
 		c->n = k;
 }
-*/
+
 
 
 __global__ void CHAINFILTERING_flt_chained_seeds_kernel(
