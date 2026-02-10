@@ -3197,7 +3197,7 @@ __global__ void CHAINFILTERING_flt_chained_seeds_kernel(
 				// current_seed.score can be negative because mem_seed_sw returns -1 for seeds that are too short after extension, but we want to keep those seeds and assign them a score based on their length 
 				keep_seed = (current_seed.score < 0 || current_seed.score >= min_HSP_score);
 				if(keep_seed) { //fix negative socre
-					current_seed.score = (current_seed.score < 0) ? current_seed.len * d_opt->a : current_seed.score;
+					current_seed.score = (current_seed.score < 0) ? current_seed.len * match_score_a : current_seed.score;
 				}
 				// else discard seed by not copying to current_seed
 				// keep_seed flag will be used later for compaction
