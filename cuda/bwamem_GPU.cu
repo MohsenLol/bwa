@@ -3159,13 +3159,13 @@ __global__ void CHAINFILTERING_flt_chained_seeds_kernel(
     void* __restrict__ d_buffer_pools
 	)
 {
-	int warp_id_in_block = threadIdx.x / WARPSIZE;
-	int lane_id = threadIdx.x % WARPSIZE;
+	int warp_id_in_block = threadIdx.x >> 5; //32
+	int lane_id = threadIdx.x & 31; %32
 	int block_id = blockIdx.x;
-	int read_idx = block_id * (blockDim.x / WARPSIZE) + warp_id_in_block; // each warp processes one read
+	int read_idx = block_id * (blockDim.x >> 5) + warp_id_in_block; // each warp processes one read
 	if(read_idx >= n) return; // out of bound check
 	int n_chn = d_chains[read_idx].n;
-	if(n_chn == 0) return; // no need to filter
+	if(n_chn <= 0) return; // no need to filter
 	int l_query = d_seqs[read_idx].l_seq;
 	const uint8_t* __restrict__ query = (uint8_t*)d_seqs[read_idx].seq;
 	// compute thresholds uniformly for 
@@ -3203,7 +3203,7 @@ __global__ void CHAINFILTERING_flt_chained_seeds_kernel(
 			// scan-compaction using _ballot_sync
 			unsigned int mask = __ballot_sync(0xFFFFFFFF, keep_seed);
 			// count predecessors that are kept in this warp to determine the write position for each thread's seed
-			unsigned int predecessors = __popc(mask & ((1ULL << lane_id) - 1));
+			unsigned int predecessors = __popc(mask & ((1U << lane_id) - 1));
 			int local_offset = predecessors;
 			if(keep_seed) {
 				int output_pos = write_index + local_offset; // position to write in compacted array
@@ -3216,6 +3216,7 @@ __global__ void CHAINFILTERING_flt_chained_seeds_kernel(
 		if(lane_id == 0) {
             c->n = write_index;
         }
+		__syncwarp(); 
 	}
 }
 
@@ -3233,9 +3234,10 @@ __global__ void CHAINFILTERING_flt_chained_seeds_kernel_old(
 	int n_chn = d_chains[i].n;
 	uint8_t* query = (uint8_t*)d_seqs[i].seq;
 	int l_query = d_seqs[i].l_seq;
-
+	const int min_HSP_score = (int)(d_opt->a * min_l + .499);
+	const int match_score_a = d_opt->a;
 	double min_l = d_opt->min_chain_weight? MEM_HSP_COEF * d_opt->min_chain_weight : MEM_MINSC_COEF * log((float)l_query);
-	int j, k, min_HSP_score = (int)(d_opt->a * min_l + .499);
+	int j, k, 
 	if (min_l > MEM_SEEDSW_COEF * l_query) return; // don't run the following for short reads
 	for (i = 0; i < n_chn; ++i) {
 		mem_chain_t *c = &a[i];
@@ -3243,7 +3245,7 @@ __global__ void CHAINFILTERING_flt_chained_seeds_kernel_old(
 			mem_seed_t *s = &c->seeds[j];
 			s->score = mem_seed_sw(d_opt, d_bns, d_pac, l_query, query, s, d_buffer_ptr);
 			if (s->score < 0 || s->score >= min_HSP_score) {
-				s->score = s->score < 0? s->len * d_opt->a : s->score;
+				s->score = s->score < 0? s->len * match_score_a : s->score;
 				c->seeds[k++] = *s;
 			}
 		}
