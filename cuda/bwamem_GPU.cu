@@ -3182,7 +3182,7 @@ __global__ void CHAINFILTERING_flt_chained_seeds_kernel(
 	void* d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, lane_id);
 	mem_chain_t* chains_base = d_chains[read_idx].a;
 	// itterative over Chains 
-		
+	for(int i = 0; i < n_chn; ++i) {
 		mem_chain_t* c = &chains_base[i];
 		int n_seeds = c->n;
 		int write_index = 0;
