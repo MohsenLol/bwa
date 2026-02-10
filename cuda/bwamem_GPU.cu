@@ -4325,7 +4325,7 @@ void mem_align_GPU(process_data_t *process_data)
 
 	/* seed chaining */
 	if (bwa_verbose>=4)  fprintf(stderr, "[M::%-25s] **** [SEED CHAINING]: chaining seeds ...\n", __func__);
-	old_SEEDCHAINING_chain_kernel <<< n_seqs, SEEDCHAINING_CHAIN_BLOCKDIMX, 0, process_stream >>> (
+	SEEDCHAINING_chain_kernel <<< n_seqs, SEEDCHAINING_CHAIN_BLOCKDIMX, 0, process_stream >>> (
 		d_opt, d_bns, d_seqs, d_seq_seeds,
 		d_chains,	// output
 		d_buffer_pools);
