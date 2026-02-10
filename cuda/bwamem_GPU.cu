@@ -3160,7 +3160,7 @@ __global__ void CHAINFILTERING_flt_chained_seeds_kernel(
 	)
 {
 	int warp_id_in_block = threadIdx.x >> 5; //32
-	int lane_id = threadIdx.x & 31; %32
+	int lane_id = threadIdx.x & 31; //%32
 	int block_id = blockIdx.x;
 	int read_idx = block_id * (blockDim.x >> 5) + warp_id_in_block; // each warp processes one read
 	if(read_idx >= n) return; // out of bound check
