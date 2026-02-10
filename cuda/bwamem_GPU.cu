@@ -3240,7 +3240,7 @@ __global__ void CHAINFILTERING_flt_chained_seeds_kernel_old(
 	double min_l = d_opt->min_chain_weight? MEM_HSP_COEF * d_opt->min_chain_weight : MEM_MINSC_COEF * log((float)l_query);
 	int min_HSP_score = (int)(d_opt->a * min_l + .499);
 	int match_score_a = d_opt->a;
-	int j, k, 
+	int j, k; 
 	if (min_l > MEM_SEEDSW_COEF * l_query) return; // don't run the following for short reads
 	for (i = 0; i < n_chn; ++i) {
 		mem_chain_t *c = &a[i];
