@@ -3168,14 +3168,16 @@ __global__ void CHAINFILTERING_flt_chained_seeds_kernel(
 	if(n_chn <= 0) return; // no need to filter
 	int l_query = d_seqs[read_idx].l_seq;
 	const uint8_t* __restrict__ query = (uint8_t*)d_seqs[read_idx].seq;
+	
+
 	// compute thresholds uniformly for 
 	float min_l_val = d_opt->min_chain_weight ? 
 	      MEM_HSP_COEF * d_opt->min_chain_weight 
 		: MEM_MINSC_COEF * logf((float)l_query);
-	
+	const int min_HSP_score = (int)(d_opt->a * min_l_val + .499);
+	const int match_score_a = d_opt->a;
 	// short read early exit 
 	if(min_l_val > MEM_SEEDSW_COEF  * l_query) return;
-    int min_HSP_score = (int)(d_opt->a * min_l_val + .499f);
 
 	void* d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, lane_id);
 	mem_chain_t* chains_base = d_chains[read_idx].a;
@@ -3234,9 +3236,10 @@ __global__ void CHAINFILTERING_flt_chained_seeds_kernel_old(
 	int n_chn = d_chains[i].n;
 	uint8_t* query = (uint8_t*)d_seqs[i].seq;
 	int l_query = d_seqs[i].l_seq;
-	const int min_HSP_score = (int)(d_opt->a * min_l + .499);
-	const int match_score_a = d_opt->a;
+	
 	double min_l = d_opt->min_chain_weight? MEM_HSP_COEF * d_opt->min_chain_weight : MEM_MINSC_COEF * log((float)l_query);
+	int min_HSP_score = (int)(d_opt->a * min_l + .499);
+	int match_score_a = d_opt->a;
 	int j, k, 
 	if (min_l > MEM_SEEDSW_COEF * l_query) return; // don't run the following for short reads
 	for (i = 0; i < n_chn; ++i) {
