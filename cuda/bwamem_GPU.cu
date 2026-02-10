@@ -3174,7 +3174,7 @@ __global__ void CHAINFILTERING_flt_chained_seeds_kernel(
 		: MEM_MINSC_COEF * logf((float)l_query);
 	
 	// short read early exit 
-	if(min_l_val > MEM_SEEDS_COEF * l_query) return;
+	if(min_l_val > MEM_SEEDSW_COEF  * l_query) return;
     int min_HSP_score = (int)(d_opt->a * min_l_val + .499f);
 
 	void* d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, lane_id);
@@ -4358,10 +4358,10 @@ void mem_align_GPU(process_data_t *process_data)
 	const int flt_warpsPerBlock = flt_blockSize / 32;
 
 	// We need enough blocks to cover all 'n' reads, where each block covers 'warpsPerBlock' reads.
-	const int flt_numBlocks = (n + flt_warpsPerBlock - 1) / flt_warpsPerBlock;
+	const int flt_numBlocks = (n_seqs + flt_warpsPerBlock - 1) / flt_warpsPerBlock;
 
 	CHAINFILTERING_flt_chained_seeds_kernel<<<flt_numBlocks, flt_blockSize, 0, process_stream>>>(
-		d_opt, d_bns, d_pac, d_seqs, d_chains, n, d_buffer_pools
+		d_opt, d_bns, d_pac, d_seqs, d_chains, n_seqs, d_buffer_pools
 	);
 	/**
 	CHAINFILTERING_flt_chained_seeds_kernel <<< dimGrid_readlevel, dimBlock_readlevel, 0, process_stream >>> (
