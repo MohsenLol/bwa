@@ -3182,7 +3182,7 @@ __global__ void CHAINFILTERING_flt_chained_seeds_kernel(
 	void* d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, lane_id);
 	mem_chain_t* chains_base = d_chains[read_idx].a;
 	// itterative over Chains 
-	for(int i = 0; i < n_chn; ++i) {
+		
 		mem_chain_t* c = &chains_base[i];
 		int n_seeds = c->n;
 		int write_index = 0;
@@ -4350,7 +4350,7 @@ void mem_align_GPU(process_data_t *process_data)
 	/* filter chains */
 	if (bwa_verbose>=4) fprintf(stderr, "[M::%-25s] **** [CHAIN FILTERING]: Launch kernel mem_chain_flt ...\n", __func__);
 	//filters and prunes MEM chains on the GPU—one block per read—using shared memory to drop weak or redundant chains before alignment extension.
-	CHAINFILTERING_filter_kernel_old <<< n_seqs, CHAIN_FLT_BLOCKSIZE, MAX_N_CHAIN*(3*sizeof(uint16_t)+2 * sizeof(uint8_t)), process_stream >>> (
+	CHAINFILTERING_filter_kernel <<< n_seqs, CHAIN_FLT_BLOCKSIZE, MAX_N_CHAIN*(3*sizeof(uint16_t)+2 * sizeof(uint8_t)), process_stream >>> (
 			d_opt, 
 			d_chains, 	// input and output
 			d_buffer_pools);
