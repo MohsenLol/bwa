@@ -2460,7 +2460,7 @@ __global__ void old_SEEDCHAINING_chain_kernel(
 				chain_seeds[chain_n++] = seed_a[l];
 			}
 			chain_a[chainID].n = chain_n;
-			chain_a[chainID].m = chain_m;
+			chain_a[chainID].m = chain_n;
 			chain_a[chainID].seeds = chain_seeds;
 		}
 	}
@@ -2621,26 +2621,19 @@ __global__ void SEEDCHAINING_chain_kernel(
 			chain_a[chainID].pos = head_seed.rbeg;
 			chain_a[chainID].rid = rid_head;
 			chain_a[chainID].is_alt = !!(d_bns->anns[rid_head].is_alt);
-			// initialize seed array on this chain
-			int chain_m = 16;	// amount of pre-allocated memory for seeds array (increased from 9 to 16 to reduce re-allocation)
-			int chain_n = 1;	// number of seed in this new chain
-			mem_seed_t *chain_seeds = (mem_seed_t*)CUDAKernelMalloc(d_buffer_ptr, chain_m*sizeof(mem_seed_t), 8);	// seeds array for this chain
-			chain_seeds[0] = seed_a_global[i];	// first seed on chain
-			int l = i;	// counting suceeding seeds
-			// add suceeding seeds
-			int next_l = S_suceeding_seed[l];
-			while (next_l != INT_MAX){
-				l = next_l;
-				
-				if (chain_n==chain_m){	// need to expand memory allocation
-					chain_m = chain_m<<1;
-					chain_seeds = (mem_seed_t*)CUDAKernelRealloc(d_buffer_ptr, chain_seeds, chain_m*sizeof(mem_seed_t), 8);
-				}
-				chain_seeds[chain_n++] = seed_a_global[l];
-				next_l = S_suceeding_seed[l];
+			// pass 1 : count number of seeds on this chain to determine memory allocation for seeds array 
+			int len = 1;	// number of seeds on this chain
+			for (int cur = S_succeeding[i]; cur != INT_MAX; cur = S_succeeding[cur]) ++len;
+			mem_seed_t *chain_seeds = (mem_seed_t*)CUDAKernelMalloc(d_buffer_ptr, len*sizeof(mem_seed_t), 8);	// seeds array for this chain
+			// second pass : fill in seeds on this chain
+			chain_seeds[0] = seed_a_global[i];	// first seed on the chain
+			// counting suceeding seeds - add suceeding seeds
+			int pos = 1;
+			for(int cur = S_succeeding[i]; cur != INT_MAX; cur = S_succeeding[cur]) {
+				chain_seeds[pos++] = seed_a_global[cur];
 			}
-			chain_a[chainID].n = chain_n;
-			chain_a[chainID].m = chain_m;
+			chain_a[chainID].n = pos;
+			chain_a[chainID].m = len;
 			chain_a[chainID].seeds = chain_seeds;
 		}
 	}
