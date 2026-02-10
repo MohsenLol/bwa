@@ -4350,7 +4350,7 @@ void mem_align_GPU(process_data_t *process_data)
 	/* filter chains */
 	if (bwa_verbose>=4) fprintf(stderr, "[M::%-25s] **** [CHAIN FILTERING]: Launch kernel mem_chain_flt ...\n", __func__);
 	//filters and prunes MEM chains on the GPU—one block per read—using shared memory to drop weak or redundant chains before alignment extension.
-	CHAINFILTERING_filter_kernel <<< n_seqs, CHAIN_FLT_BLOCKSIZE, MAX_N_CHAIN*(3*sizeof(uint16_t)+2 * sizeof(uint8_t)), process_stream >>> (
+	CHAINFILTERING_filter_kernel_old <<< n_seqs, CHAIN_FLT_BLOCKSIZE, MAX_N_CHAIN*(3*sizeof(uint16_t)+2 * sizeof(uint8_t)), process_stream >>> (
 			d_opt, 
 			d_chains, 	// input and output
 			d_buffer_pools);
@@ -4359,6 +4359,7 @@ void mem_align_GPU(process_data_t *process_data)
 
 	/* fourth kernel: mem_flt_chained_seeds */
 	if (bwa_verbose>=4) fprintf(stderr, "[M::%-25s] **** [CHAIN FILTERING]: Launch kernel mem_flt_chained_seeds ...\n", __func__);
+	/*
 	const int flt_blockSize = 128; // Standard block size (4 warps per block)
 	const int flt_warpsPerBlock = flt_blockSize / 32;
 
@@ -4367,13 +4368,12 @@ void mem_align_GPU(process_data_t *process_data)
 
 	CHAINFILTERING_flt_chained_seeds_kernel<<<flt_numBlocks, flt_blockSize, 0, process_stream>>>(
 		d_opt, d_bns, d_pac, d_seqs, d_chains, n_seqs, d_buffer_pools
-	);
-	/**
-	CHAINFILTERING_flt_chained_seeds_kernel <<< dimGrid_readlevel, dimBlock_readlevel, 0, process_stream >>> (
+	); */
+
+	CHAINFILTERING_flt_chained_seeds_kernel_old <<< dimGrid_readlevel, dimBlock_readlevel, 0, process_stream >>> (
 			d_opt, d_bns, d_pac,
 			d_seqs, d_chains, 	// input and output
 			n_seqs, d_buffer_pools);
-			*/
 	gpuErrchk2( cudaPeekAtLastError() );
 	gpuErrchk2( cudaStreamSynchronize(process_stream) );
 
