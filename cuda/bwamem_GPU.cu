@@ -3299,7 +3299,6 @@ __global__ void SMITHWATERMAN_preprocessing1_kernel(
 		d_regs[seqID].n = 0;
 		return;
 	}
-	return; // test point 2
 	void* d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, threadIdx.x & 31);
 
 	// count number of seeds for this read
