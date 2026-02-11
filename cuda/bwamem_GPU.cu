@@ -3298,23 +3298,25 @@ __global__ void SMITHWATERMAN_preprocessing1_kernel(
 	if (seqID>=n_seqs) return;
 	int chn_n = d_chains[seqID].n;					// n_chains of this read
 	mem_chain_t* chn_a = d_chains[seqID].a;			// chain array of this read
+	return; // test point 1 
 
 	if (chn_n==0){
 		d_regs[seqID].n = 0;
 		return;
 	}
-	void* d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, threadIdx.x%32);
+	return; // test point 2
+	void* d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, threadIdx.x & 31);
 
 	// count number of seeds for this read
 	int n_seeds = 0;
 	for (int i=0; i<chn_n; i++)	// loop through chains
 		n_seeds = n_seeds + chn_a[i].n;
-
+	return; // test point 3
 	if (n_seeds==0){
 		d_regs[seqID].n = 0;
 		return;
 	}
-
+	return; // test point 4
 	// write seed record to global d_seed_records
 	int start = atomicAdd(d_Nseeds, n_seeds);
 	int j = 0;	// start+j will be the offset on d_seed_records, j is regID
