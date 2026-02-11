@@ -2526,7 +2526,7 @@ __global__ void SEEDCHAINING_chain_kernel(
 		// 128 aligned copy
 			int4* src_ptr = (int4*)seed_a_global;
 			int4  raw4int = src_ptr[i << 1];
-			(int4*)&S_seeds[i] = raw4int;
+			*((int4*)&S_seeds[i]) = raw4int;
 			S_suceeding_seed[i] = INT_MAX; // initial: no chain yet
 	}
 //	return; // test_point 1
