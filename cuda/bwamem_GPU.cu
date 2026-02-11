@@ -2519,7 +2519,6 @@ __global__ void SEEDCHAINING_chain_kernel(
 	// double linked-list representation of chains
 	// for each seed, store its preceding seed and suceeding seed on the chain
 	__shared__ smallmem_seed_t S_seeds[SORTSEEDSHIGH_MAX_NSEEDS];
-	__shared__ int32_t rids[SORTSEEDSHIGH_MAX_NSEEDS];
 	__shared__ int16_t S_preceding_seed[SORTSEEDSHIGH_MAX_NSEEDS];
 	__shared__ int S_suceeding_seed[SORTSEEDSHIGH_MAX_NSEEDS];
 	// transfer seed data to shared memory
@@ -2528,7 +2527,6 @@ __global__ void SEEDCHAINING_chain_kernel(
 			int4* src_ptr = (int4*)seed_a_global;
 			int4  raw4int = src_ptr[i << 1];
 			*((int4*)&S_seeds[i]) = raw4int;
-			rids[i] = seed_a_global[i].rid;
 			S_suceeding_seed[i] = INT_MAX; // initial: no chain yet
 	}
 		// seed 0 always head of a chain
@@ -2551,7 +2549,7 @@ __global__ void SEEDCHAINING_chain_kernel(
 	// 7. |(qbeg_j - qbeg_i) - (rbeg_j - rbeg_i)| <= bandwidth_gap
 	for (int j=threadIdx.x+1; j<n_seeds; j+=blockDim.x){
 		smallmem_seed_t seed_j = S_seeds[j];
-		int32_t rid_j = rids[j];
+		int32_t rid_j = seed_a_global[j].rid;
 		if (rid_j==-1){
 			S_preceding_seed[j] = -1;
 			continue;
@@ -2565,7 +2563,7 @@ __global__ void SEEDCHAINING_chain_kernel(
 			smallmem_seed_t seed_i = S_seeds[i];
 			int64_t rbeg_i = seed_i.rbeg;
 			int64_t rbeg_j = seed_j.rbeg;
-			int32_t rid_i  = rids[i];
+			int32_t rid_i  = seed_a_global[i].rid;
 			// stop early if rbeg_i < rbeg_lower_bound
 			if(rbeg_i < rbeg_lower_bound) break;	// no more seeds can chain to seed j
 			// test condition 1 : Differenet reference ID
@@ -2615,7 +2613,7 @@ __global__ void SEEDCHAINING_chain_kernel(
 	for (int i=threadIdx.x; i<n_seeds; i+=blockDim.x){	// i = seedID
 		if (S_preceding_seed[i] == i){	// seed i is head of chain
 			// start a new chain
-			int32_t rid_head = rids[i];
+			int32_t rid_head = 	seed_a_global[i].rid;
 			int chainID = atomicAdd(&S_n_chains[0], 1);
 			smallmem_seed_t head_seed = S_seeds[i];
 			chain_a[chainID].pos = head_seed.rbeg;
