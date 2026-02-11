@@ -2529,7 +2529,7 @@ __global__ void SEEDCHAINING_chain_kernel(
 			S_seeds[i] = *(smallmem_seed_t*)&raw4int;
 			S_suceeding_seed[i] = INT_MAX; // initial: no chain yet
 	}
-	return; // test_point 1
+//	return; // test_point 1
 		// seed 0 always head of a chain
 	if (threadIdx.x==0) S_preceding_seed[0] = 0;
 	__syncthreads();
@@ -2590,7 +2590,7 @@ __global__ void SEEDCHAINING_chain_kernel(
 		}	
 	}
 	__syncthreads();
-	return; // test_point 2
+	//return; // test_point 2
 	// fix preceding_seed to make sure doubly linked-list is consistent
 	// if seed j's preceding seed is i, then seed i's suceeding seed
 	// min in |internal for loop|  may creates broken preceeding link 
@@ -2638,7 +2638,7 @@ __global__ void SEEDCHAINING_chain_kernel(
 			chain_a[chainID].seeds = chain_seeds;
 		}
 	}
-	return; // test_point 5
+	//return; // test_point 5
 	__syncthreads();
 
 	// write output
