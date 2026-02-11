@@ -2623,13 +2623,13 @@ __global__ void SEEDCHAINING_chain_kernel(
 			chain_a[chainID].is_alt = !!(d_bns->anns[rid_head].is_alt);
 			// pass 1 : count number of seeds on this chain to determine memory allocation for seeds array 
 			int len = 1;	// number of seeds on this chain
-			for (int cur = S_succeeding[i]; cur != INT_MAX; cur = S_succeeding[cur]) ++len;
+			for (int cur = S_suceeding_seed[i]; cur != INT_MAX; cur = S_suceeding_seed[cur]) ++len;
 			mem_seed_t *chain_seeds = (mem_seed_t*)CUDAKernelMalloc(d_buffer_ptr, len*sizeof(mem_seed_t), 8);	// seeds array for this chain
 			// second pass : fill in seeds on this chain
 			chain_seeds[0] = seed_a_global[i];	// first seed on the chain
 			// counting suceeding seeds - add suceeding seeds
 			int pos = 1;
-			for(int cur = S_succeeding[i]; cur != INT_MAX; cur = S_succeeding[cur]) {
+			for(int cur = S_suceeding_seed[i]; cur != INT_MAX; cur = S_suceeding_seed[cur]) {
 				chain_seeds[pos++] = seed_a_global[cur];
 			}
 			chain_a[chainID].n = pos;
