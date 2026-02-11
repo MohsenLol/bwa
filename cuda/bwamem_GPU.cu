@@ -2516,6 +2516,7 @@ __global__ void SEEDCHAINING_chain_kernel(
 		return;
 	}
 	mem_seed_t *seed_a_global = d_seq_seeds[blockIdx.x].a;	// seed array
+	/*
 	if (threadIdx.x == 0)
     {
         uintptr_t addr = reinterpret_cast<uintptr_t>(seed_a_global);
@@ -2525,8 +2526,9 @@ __global__ void SEEDCHAINING_chain_kernel(
 			__trap();
 		}
 	}
+	
 		return; // test point 0 
-
+*/
 	// double linked-list representation of chains
 	// for each seed, store its preceding seed and suceeding seed on the chain
 	__shared__ smallmem_seed_t __align__(16) S_seeds[SORTSEEDSHIGH_MAX_NSEEDS];
