@@ -2328,6 +2328,11 @@ __global__ void SEEDCHAINING_sortSeeds_high_kernel(
 	__syncthreads();
 	if (threadIdx.x == 0)	d_seq_seeds[blockIdx.x].a = new_seed_a;
 }
+struct __align__(16) smallmem_seed_t {
+    int64_t rbeg;
+    int32_t qbeg;
+    int32_t len;
+};
 
 /* find the smallest seed on seeds such that its rbeg>=rbeg_lower_bound*/
 __device__ inline static int search_lower_bound_rbeg(const smallmem_seed_t * __restrict__ seeds, const int seedID, const int64_t rbeg_lower_bound){
@@ -2502,11 +2507,7 @@ __global__ void old_SEEDCHAINING_chain_kernel(
      - preceding_seed[j] = -1 means seed is discarded
      - suceeding_seed[i] = INT_MAX means that seed i has no suceeding seed
  */
-struct __align__(16) smallmem_seed_t {
-    int64_t rbeg;
-    int32_t qbeg;
-    int32_t len;
-};
+
 #define SEEDCHAINING_CHAIN_BLOCKDIMX 256
 // d_seq_seeds : input seeds sorted by rbeg
 // d_chains : output chains
