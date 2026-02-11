@@ -2518,7 +2518,7 @@ __global__ void SEEDCHAINING_chain_kernel(
 	mem_seed_t *seed_a_global = d_seq_seeds[blockIdx.x].a;	// seed array
 	// double linked-list representation of chains
 	// for each seed, store its preceding seed and suceeding seed on the chain
-	__shared__ smallmem_seed_t S_seeds[SORTSEEDSHIGH_MAX_NSEEDS];
+	__shared__ smallmem_seed_t __align__(16) S_seeds[SORTSEEDSHIGH_MAX_NSEEDS];
 	__shared__ int16_t S_preceding_seed[SORTSEEDSHIGH_MAX_NSEEDS];
 	__shared__ int S_suceeding_seed[SORTSEEDSHIGH_MAX_NSEEDS];
 	// transfer seed data to shared memory
