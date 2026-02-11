@@ -2536,14 +2536,13 @@ __global__ void SEEDCHAINING_chain_kernel(
 	#pragma unroll 4
 	for(int i = threadIdx.x; i < n_seeds; i += blockDim.x) {
 		// 128 aligned copy
-			mem_seed_t s = seed_a_global[i];
-
+		    int4* src_ptr = (int4*)&seed_a_global[i];
+			int4 rawdata;
+			memcpy(&rawdata, src_ptr, sizeof(int4));
 			//int4  raw4int = src_ptr[i << 1];
 			//*src_ptr = raw4int;
 			//*((int4*)&S_seeds[i]) = raw4int;
-			S_seeds[i].rbeg = s.rbeg;
-			S_seeds[i].qbeg = s.qbeg;
-			S_seeds[i].len = s.len;
+			*((int4*)&S_seeds[i]) = rawdata;
 			S_suceeding_seed[i] = INT_MAX; // initial: no chain yet
 	}
 		// seed 0 always head of a chain
