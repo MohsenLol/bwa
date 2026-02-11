@@ -3309,7 +3309,7 @@ __global__ void SMITHWATERMAN_preprocessing1_kernel(
 		d_regs[seqID].n = 0;
 		return;
 	}
-	return; // test point 4
+
 	// write seed record to global d_seed_records
 	int start = atomicAdd(d_Nseeds, n_seeds);
 	int j = 0;	// start+j will be the offset on d_seed_records, j is regID
@@ -3325,7 +3325,7 @@ __global__ void SMITHWATERMAN_preprocessing1_kernel(
 			j++;
 		}	
 	}
-
+	return; // test point 5
 	// allocate regs vector
 	d_regs[seqID].n = d_regs[seqID].m = n_seeds;
 	d_regs[seqID].a = (mem_alnreg_t*)CUDAKernelCalloc(d_buffer_ptr, n_seeds, sizeof(mem_alnreg_t), 8);
