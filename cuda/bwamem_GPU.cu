@@ -2617,7 +2617,7 @@ __global__ void SEEDCHAINING_chain_kernel(
 		if (S_suceeding_seed[predec_seed] != j) // not match
 			S_preceding_seed[j] = j;	// make seed j head of chain
 	}
-	return; // test_point 3
+	//return; // test_point 3
 	// now create the chains based on the doubly linked-lists that we found
 	__shared__ int S_n_chains[1];
 	__shared__ mem_chain_t* S_chain_a[1];
@@ -2627,7 +2627,7 @@ __global__ void SEEDCHAINING_chain_kernel(
 		S_n_chains[0] = 0;
 	}
 	__syncthreads();
-	return; // test_point 4
+	//return; // test_point 4
 	void *d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, (blockIdx.x * blockDim.x + threadIdx.x) & 31);
 	mem_chain_t *chain_a = S_chain_a[0];
 	for (int i=threadIdx.x; i<n_seeds; i+=blockDim.x){	// i = seedID
