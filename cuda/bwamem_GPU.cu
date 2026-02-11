@@ -2526,7 +2526,7 @@ __global__ void SEEDCHAINING_chain_kernel(
 		}
 	}
 		return; // test point 0 
-	}
+
 	// double linked-list representation of chains
 	// for each seed, store its preceding seed and suceeding seed on the chain
 	__shared__ smallmem_seed_t __align__(16) S_seeds[SORTSEEDSHIGH_MAX_NSEEDS];
