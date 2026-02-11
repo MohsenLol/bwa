@@ -2330,7 +2330,19 @@ __global__ void SEEDCHAINING_sortSeeds_high_kernel(
 }
 
 /* find the smallest seed on seeds such that its rbeg>=rbeg_lower_bound*/
-__device__ inline static int search_lower_bound_rbeg(mem_seed_t *seeds, int seedID, int64_t rbeg_lower_bound){
+__device__ inline static int search_lower_bound_rbeg(const smallmem_seed_t * __restrict__ seeds, const int seedID, const int64_t rbeg_lower_bound){
+	int lower = 0;		// lower bound on binary search
+	int upper = seedID;
+	int mid = seedID/2;
+	while (lower < upper-1){
+		if (seeds[mid].rbeg < rbeg_lower_bound) lower = mid;
+		else upper = mid;
+		mid = (lower + upper)/2;
+	}
+	if (seeds[lower].rbeg >= rbeg_lower_bound) return lower;
+	else return upper;
+}
+__device__ inline static int search_lower_bound_rbeg_old(const mem_seed_t * __restrict__ seeds, const int seedID, const int64_t rbeg_lower_bound){
 	int lower = 0;		// lower bound on binary search
 	int upper = seedID;
 	int mid = seedID/2;
@@ -2397,7 +2409,7 @@ __global__ void old_SEEDCHAINING_chain_kernel(
 		int64_t rbeg_j = seed_a[j].rbeg;
 		// find lower bound for rbeg_i, lower value than which seeds cannot chain to seed j
 		int64_t rbeg_lower_bound = seed_a[j].rbeg - l_seq - max_chain_gap;
-		int seedID_lower_bound = search_lower_bound_rbeg(seed_a, j, rbeg_lower_bound);
+		int seedID_lower_bound = search_lower_bound_rbeg_old(seed_a, j, rbeg_lower_bound);
 		for (int i=j-1; i>=seedID_lower_bound; i--){
 			int64_t rbeg_i = seed_a[i].rbeg;
 			// test condition 1 && 2
@@ -2575,7 +2587,7 @@ __global__ void SEEDCHAINING_chain_kernel(
 		else {S_preceding_seed[j] = j;}
 		// find lower bound for rbeg_i, lower value than which seeds cannot chain to seed j
 		int64_t rbeg_lower_bound = seed_j.rbeg - l_seq - max_chain_gap;
-		const int seedID_lower_bound = 0;
+		const int seedID_lower_bound = search_lower_bound_rbeg(S_seeds, j, rbeg_lower_bound);;
 		// removed because of global memory access int seedID_lower_bound = search_lower_bound_rbeg(seed_a, j, rbeg_lower_bound);
 		for (int i=j-1; i>=seedID_lower_bound; i--){
 			smallmem_seed_t seed_i = S_seeds[i];
