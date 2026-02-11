@@ -2516,21 +2516,36 @@ __global__ void SEEDCHAINING_chain_kernel(
 		return;
 	}
 	mem_seed_t *seed_a_global = d_seq_seeds[blockIdx.x].a;	// seed array
+	if (threadIdx.x == 0)
+    {
+        uintptr_t addr = reinterpret_cast<uintptr_t>(seed_a_global);
+        int misalign = addr % 16;
+		if(misalign != 0) {
+			printf("Warning: seed array for seqID=%d is not 16-byte aligned. Address: %p\n", blockIdx.x, seed_a_global);
+			__trap();
+		}
+	}
+		return; // test point 0 
+	}
 	// double linked-list representation of chains
 	// for each seed, store its preceding seed and suceeding seed on the chain
 	__shared__ smallmem_seed_t __align__(16) S_seeds[SORTSEEDSHIGH_MAX_NSEEDS];
 	__shared__ int16_t S_preceding_seed[SORTSEEDSHIGH_MAX_NSEEDS];
 	__shared__ int S_suceeding_seed[SORTSEEDSHIGH_MAX_NSEEDS];
 	// transfer seed data to shared memory
+	#pragma unroll 4
 	for(int i = threadIdx.x; i < n_seeds; i += blockDim.x) {
 		// 128 aligned copy
-			int4* src_ptr = (int4*)seed_a_global;
-			int4  raw4int = src_ptr[i << 1];
-			*src_ptr = raw4int;
+			mem_seed_t s = seed_a_global[i];
+
+			//int4  raw4int = src_ptr[i << 1];
+			//*src_ptr = raw4int;
 			//*((int4*)&S_seeds[i]) = raw4int;
+			S_seeds[i].rbeg = s.rbeg;
+			S_seeds[i].qbeg = s.qbeg;
+			S_seeds[i].len = s.len;
 			S_suceeding_seed[i] = INT_MAX; // initial: no chain yet
 	}
-return; // test_point 1
 		// seed 0 always head of a chain
 	if (threadIdx.x==0) S_preceding_seed[0] = 0;
 	__syncthreads();
