@@ -2620,7 +2620,6 @@ __global__ void SEEDCHAINING_chain_kernel(
 		}	
 	}
 	__syncthreads();
-	//return; // test_point 2
 	// fix preceding_seed to make sure doubly linked-list is consistent
 	// if seed j's preceding seed is i, then seed i's suceeding seed
 	// min in |internal for loop|  may creates broken preceeding link 
@@ -2630,7 +2629,6 @@ __global__ void SEEDCHAINING_chain_kernel(
 		if (S_suceeding_seed[predec_seed] != j) // not match
 			S_preceding_seed[j] = j;	// make seed j head of chain
 	}
-	//return; // test_point 3
 	// now create the chains based on the doubly linked-lists that we found
 	__shared__ int S_n_chains[1];
 	__shared__ mem_chain_t* S_chain_a[1];
@@ -2640,7 +2638,6 @@ __global__ void SEEDCHAINING_chain_kernel(
 		S_n_chains[0] = 0;
 	}
 	__syncthreads();
-	//return; // test_point 4
 	void *d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, (blockIdx.x * blockDim.x + threadIdx.x) & 31);
 	mem_chain_t *chain_a = S_chain_a[0];
 	for (int i=threadIdx.x; i<n_seeds; i+=blockDim.x){	// i = seedID
@@ -2668,7 +2665,6 @@ __global__ void SEEDCHAINING_chain_kernel(
 			chain_a[chainID].seeds = chain_seeds;
 		}
 	}
-	//return; // test_point 5
 	__syncthreads();
 
 	// write output
@@ -3298,7 +3294,6 @@ __global__ void SMITHWATERMAN_preprocessing1_kernel(
 	if (seqID>=n_seqs) return;
 	int chn_n = d_chains[seqID].n;					// n_chains of this read
 	mem_chain_t* chn_a = d_chains[seqID].a;			// chain array of this read
-	return; // test point 1 
 
 	if (chn_n==0){
 		d_regs[seqID].n = 0;
