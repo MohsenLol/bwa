@@ -3305,7 +3305,6 @@ __global__ void SMITHWATERMAN_preprocessing1_kernel(
 	int n_seeds = 0;
 	for (int i=0; i<chn_n; i++)	// loop through chains
 		n_seeds = n_seeds + chn_a[i].n;
-	return; // test point 3
 	if (n_seeds==0){
 		d_regs[seqID].n = 0;
 		return;
