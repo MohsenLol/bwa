@@ -1613,8 +1613,6 @@ __global__ void PREPROCESS_MEMFINDING_collect_intv_concurrent_kernel(
 	}
 	__syncthreads();
 	int j;	// position on read to process
-	char* seq1 = d_seqs[blockIdx.x].seq; 		// get read from global mem
-	int l_seq  = d_seqs[blockIdx.x].l_seq;	// read length
 	smem_aux_t* a = &d_aux[blockIdx.x];	// aux output for this read
 	int min_seed_len = d_opt->min_seed_len;
 	int MIN_SEED = min_seed_len;
