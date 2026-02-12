@@ -2969,7 +2969,7 @@ __global__ void CHAINFILTERING_filter_kernel(
             uint16_t end[MAX_N_CHAIN];
             uint16_t w[MAX_N_CHAIN];
             uint8_t is_alt[MAX_N_CHAIN];
-            volatile uint8_t kept[MAX_N_CHAIN]; // Must be volatile for spin-loop visibility
+            uint8_t kept[MAX_N_CHAIN]; // Must be volatile for spin-loop visibility
         } data;
     };
 	extern __shared__ char smem_raw[];
@@ -2977,7 +2977,7 @@ __global__ void CHAINFILTERING_filter_kernel(
 	uint16_t* s_beg = smem->data.beg;
     uint16_t* s_end = smem->data.end;
     uint16_t* s_w   = smem->data.w;
-    volatile uint8_t* s_kept = smem->data.kept;
+    uint8_t* s_kept = smem->data.kept;
     uint8_t* s_is_alt = smem->data.is_alt;
 	const int tid = threadIdx.x;
 	for(int i = tid; i < n_chn; i+= blockDim.x){
