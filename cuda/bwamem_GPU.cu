@@ -1611,7 +1611,7 @@ __global__ void PREPROCESS_MEMFINDING_collect_intv_concurrent_kernel(
 			seq1[j] = (char)d_nst_nt4_table[b];
 		}
 	}
-	syncthreads();
+	__syncthreads();
 	int j;	// position on read to process
 	char* seq1 = d_seqs[blockIdx.x].seq; 		// get read from global mem
 	int l_seq  = d_seqs[blockIdx.x].l_seq;	// read length
