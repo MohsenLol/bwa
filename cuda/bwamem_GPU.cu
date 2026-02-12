@@ -4578,7 +4578,7 @@ void mem_align_GPU(process_data_t *process_data)
 	d_seqs, 
 	d_aux, 			// aux output
 	d_kmerHashTab,
-	d_buffer_pools)
+	d_buffer_pools);
 	
 	gpuErrchk2( cudaPeekAtLastError() );
 	gpuErrchk2( cudaStreamSynchronize(process_stream) );
