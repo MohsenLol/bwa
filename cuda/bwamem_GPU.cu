@@ -1592,13 +1592,113 @@ __global__ void MEMFINDING_collect_intv_concurrent_kernel(
 		else out_arr[start].info = 0; // discard if match not long enough
 	}
 }
+__global__ void PREPROCESS_MEMFINDING_collect_intv_concurrent_kernel(
+	const mem_opt_t *d_opt, 
+	const bwt_t *d_bwt, 
+	const bseq1_t *d_seqs, 
+	smem_aux_t *d_aux, 			// aux output
+	kmers_bucket_t *d_kmerHashTab,
+	void* d_buffer_pools)
+{
 
+	char *seq1 = d_seqs[blockIdx.x].seq; 	// get read from global mem
+	int l_seq  = d_seqs[blockIdx.x].l_seq;	// read length
+	if(threadIdx.x < WARPSIZE) {
+		for (int j=threadIdx.x; j<l_seq; j+=blockDim.x){
+		
+			// coalesced memory access: load 4 bytes at once if aligned
+			uint8_t b = seq1[j];
+			seq1[j] = (char)d_nst_nt4_table[b];
+		}
+	}
+	syncthreads();
+	int j;	// position on read to process
+	char* seq1 = d_seqs[blockIdx.x].seq; 		// get read from global mem
+	int l_seq  = d_seqs[blockIdx.x].l_seq;	// read length
+	smem_aux_t* a = &d_aux[blockIdx.x];	// aux output for this read
+	int min_seed_len = d_opt->min_seed_len;
+	int MIN_SEED = min_seed_len;
+	const int LENGTH = 100;
+	extern __shared__ int SM[];
+	if(l_seq < min_seed_len) {
+		if(threadIdx.x == 0) {
+			a->mem.n = 0;
+			a->mem.m = 0;
+			a->mem.a = NULL;
+		}
+		return;
+	}
+	if(l_seq == LENGTH)
+	{
+			// cache read in shared mem	
+		uint8_t *S_seq = (uint8_t*)SM;
+	
+		for (j=threadIdx.x; j<LENGTH; j+=blockDim.x)
+			S_seq[j] = (uint8_t)seq1[j];
+
+		// allocate memory for SMEM intervals
+		__shared__ bwtintv_t* S_mem_a[1];
+		if (threadIdx.x == 0){
+			void* d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, blockIdx.x & 31);
+			// min length of seed should be min_seed_len => we truncated (min_seed_len-1) positions from the end
+			S_mem_a[0] = (bwtintv_t*)CUDAKernelMalloc(d_buffer_ptr, (LENGTH-min_seed_len+1)*sizeof(bwtintv_t), 8);
+			// n : number of intervals allocated
+			// m : maximum number of intervals allocated
+			a->mem.n = a->mem.m = LENGTH-min_seed_len+1;
+			a->mem.a = S_mem_a[0];
+			//printf("bwtsize is %d\n", d_bwt->bwt_size);
+		}
+		__syncthreads();
+		bwtintv_t *mem_a = S_mem_a[0];
+		// extend to the right and find the longest seed
+		// positions higher than l_seq-min_seed_len would produce unqualified seds anyways
+		// iterate over positions in parallel upto (l_seq-min_seed_len)(min_len criteria)
+		for (j=threadIdx.x; j<=(LENGTH-MIN_SEED); j+=blockDim.x){
+			// find SMEMS starting at position j in the read
+		
+			bwt_smem_right(d_bwt, LENGTH, S_seq, j, start_width, 0, MIN_SEED, mem_a, d_kmerHashTab);
+
+		}
+	}
+	else
+	{
+
+		// cache read in shared mem
+		uint8_t *S_seq = (uint8_t*)SM;
+		for (j=threadIdx.x; j<l_seq; j+=blockDim.x)
+			S_seq[j] = (uint8_t)seq1[j];
+
+		// allocate memory for SMEM intervals
+		__shared__ bwtintv_t* S_mem_a[1];
+		if (threadIdx.x == 0){
+			void* d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, blockIdx.x & 31);
+			// min length of seed should be min_seed_len => we truncated (min_seed_len-1) positions from the end
+			S_mem_a[0] = (bwtintv_t*)CUDAKernelMalloc(d_buffer_ptr, (l_seq-min_seed_len+1)*sizeof(bwtintv_t), 8);
+			// n : number of intervals allocated
+			// m : maximum number of intervals allocated
+			a->mem.n = a->mem.m = l_seq-min_seed_len+1;
+			a->mem.a = S_mem_a[0];
+		}
+		__syncthreads();
+		bwtintv_t *mem_a = S_mem_a[0];
+		// extend to the right and find the longest seed
+		// positions higher than l_seq-min_seed_len would produce unqualified seds anyways
+		// iterate over positions in parallel upto (l_seq-min_seed_len)(min_len criteria)
+		for (j=threadIdx.x; j<=(l_seq-min_seed_len); j+=blockDim.x){
+			// find SMEMS starting at position j in the read
+
+			bwt_smem_right(d_bwt, l_seq, S_seq, j, start_width, 0, min_seed_len, mem_a, d_kmerHashTab);
+		}
+	}
+
+}
 // first pass: find all SMEMs
 __global__ void mem_collect_intv_kernel1(const mem_opt_t *opt, const bwt_t *bwt, const bseq1_t *d_seqs, 
 	smem_aux_t *d_aux, 			// aux output
 	int n,						// total number of reads
 	void* d_buffer_pools)
 {
+	
 	char *seq1; uint8_t *seq; int len;
 	int i, x = 0;
 
@@ -3298,25 +3398,25 @@ __global__ void SMITHWATERMAN_preprocessing1_kernel(
 	if (seqID>=n_seqs) return;
 	int chn_n = d_chains[seqID].n;					// n_chains of this read
 	mem_chain_t* chn_a = d_chains[seqID].a;			// chain array of this read
-	return; // test point 1 
+	//return; // test point 1 
 
 	if (chn_n==0){
 		d_regs[seqID].n = 0;
 		return;
 	}
-	return; // test point 2
+	//return; // test point 2
 	void* d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, threadIdx.x & 31);
 
 	// count number of seeds for this read
 	int n_seeds = 0;
 	for (int i=0; i<chn_n; i++)	// loop through chains
 		n_seeds = n_seeds + chn_a[i].n;
-	return; // test point 3
+	//return; // test point 3
 	if (n_seeds==0){
 		d_regs[seqID].n = 0;
 		return;
 	}
-	return; // test point 4
+	//return; // test point 4
 	// write seed record to global d_seed_records
 	int start = atomicAdd(d_Nseeds, n_seeds);
 	int j = 0;	// start+j will be the offset on d_seed_records, j is regID
