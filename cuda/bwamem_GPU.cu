@@ -1592,7 +1592,7 @@ __global__ void MEMFINDING_collect_intv_concurrent_kernel(
 		else out_arr[start].info = 0; // discard if match not long enough
 	}
 }
-__global__ void PREPROCESS_MEMFINDING_collect_intv_concurrent_kernel(
+__global__ void PREPROCESS_collect_filter(
 	const mem_opt_t *d_opt, 
 	const bwt_t *d_bwt, 
 	bseq1_t *d_seqs, 
@@ -1688,6 +1688,136 @@ __global__ void PREPROCESS_MEMFINDING_collect_intv_concurrent_kernel(
 			bwt_smem_right(d_bwt, l_seq, S_seq, j, start_width, 0, min_seed_len, mem_a, d_kmerHashTab);
 		}
 	}
+	__syncthreads();
+	if(threadIdx.x < WARPSIZE)
+	{
+		// seqID = blockIdx.x
+		// blockIdx.x : query read index
+		bwtintv_t *mem_a = d_aux[blockIdx.x].mem.a;
+		int n_mem = d_aux[blockIdx.x].mem.n;
+		//if (n_mem>SEEDCHAINING_MAX_N_MEM){printf("number of MEM too large: %d \n", n_mem); __trap();}
+		int max_occ = d_opt->max_occ;	// Get the maximum allowed number of occurrences for a seed and save it in max_occ.
+
+		// s_l_rep[0] is the total length of repetitive seeds
+		__shared__ uint32_t S_l_rep[1];		
+		// only one thread to init preventing race condition
+		if (threadIdx.x==0) S_l_rep[0] = 0;
+		__syncthreads();
+
+		// How many valid seeds on refrence for each memID exists for this read
+		__shared__ uint16_t S_nseeds[SEEDCHAINING_MAX_N_MEM];
+
+		const int n_iter = SEEDCHAINING_MAX_N_MEM/WARPSIZE;
+		#pragma unroll
+		for (int i=0; i<n_iter; i++){
+			int memID = i*WARPSIZE + threadIdx.x;
+			if (memID>=n_mem) break;
+			bwtint_t info = mem_a[memID].info;
+			bwtint_t occ  = mem_a[memID].x[2];
+			bwtint_t info_past = (memID == 0) ? info + 1 : mem_a[memID - 1].info;
+			if ((info==0) || (uint32_t)info==(uint32_t)info_past)  {occ = 0;}	// bad seed or duplicate seed
+			else {
+				// mem_a[memID].x[2]: number of seeds in this interval
+				if (occ > max_occ) {
+					occ = (uint16_t)max_occ;
+					// optimization for calculation length from stored [start:end) (end-start)
+					uint32_t length = (uint32_t)info - (uint32_t)(info>>32);
+					atomicAdd(&S_l_rep[0], length);
+				}
+			}
+			S_nseeds[memID] = (uint16_t)occ;
+		}
+		__syncthreads();
+
+		__shared__ int accumulative_S_nseeds[SEEDCHAINING_MAX_N_MEM];
+		__shared__ int steps[SEEDCHAINING_MAX_N_MEM];
+		int acc = 0; // Running total of all previous warps
+		#pragma unroll
+		for (int i = 0; i < n_iter; i++) 
+		{
+			int memID = i * WARPSIZE + threadIdx.x;
+			int val = (memID < n_mem) ? S_nseeds[memID] : 0;
+			//Intra-warp prefix sum using shuffle instructions
+			#pragma unroll
+			for (int offset = 1; offset < WARPSIZE; offset <<= 1) {
+				int n = __shfl_up_sync(0xffffffff, val, offset);
+				if (threadIdx.x >= offset) val += n;
+			}
+
+			//Add the accumulator from previous loop iterations
+			int total_inclusive = acc + val;
+			//Write to shared memory (Only valid threads write)
+			if (memID < n_mem) {
+				accumulative_S_nseeds[memID] = total_inclusive;
+				// update steps for each memID
+				steps[memID] = (S_nseeds[memID] < max_occ) ? 1 : (mem_a[memID].x[2] / max_occ);	
+			}
+
+		// Broadcast the last thread's total (which is the sum of this whole warp + acc)
+			int warp_total_inclusive = __shfl_sync(0xffffffff, total_inclusive, WARPSIZE - 1);
+			acc = warp_total_inclusive;
+		}
+		__syncthreads();
+		// total number of valid seeds for this read
+		int Sum = (n_mem > 0) ? accumulative_S_nseeds[n_mem - 1] : 0;
+		// now thread 0 has the correct Sum, allocate new mem_a on thread 0
+		__shared__ uint16_t S_total_nseeds[1];
+		__shared__ bwtintv_t* S_new_a[1];
+		if (threadIdx.x==0)
+		{
+			bwtintv_t* new_a = NULL;
+			if(Sum>0){ 
+				void *d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, blockIdx.x & 31);
+				new_a = (bwtintv_t*)CUDAKernelMalloc(d_buffer_ptr, Sum*sizeof(bwtintv_t), 8);
+				S_new_a[0] = new_a;
+			}
+			// save this info to the original d_aux array
+			// intervals corresponding to this read 
+			// for example : MEM0 : SA [1000, 2000), contains 5 seeds] 
+			// are now stored in new_a with total number Sum
+			d_aux[blockIdx.x].mem.a = new_a;
+			d_aux[blockIdx.x].mem.n = Sum;
+		}
+		__syncthreads();
+		if (Sum==0) return;	// no seed
+		bwtintv_t *new_a = S_new_a[0];
+
+			
+		// binary Search to find the memID for each seedID
+		int n_iter_search =(Sum + WARPSIZE - 1) / WARPSIZE;
+		for(int i = 0; i < n_iter_search; ++i) {
+			int seedID = i * WARPSIZE + threadIdx.x;
+			if (seedID >= Sum) break;
+
+			//Binary search
+			int left = 0;
+			int right = n_mem - 1;
+			int memID = n_mem - 1; //Default to last memID
+
+			while (left <= right) {
+				int mid = (left + right) >> 1;
+				int mid_value = accumulative_S_nseeds[mid];
+
+				if (mid_value > seedID) {
+					memID = mid; //Potential answer
+					right = mid - 1;
+				} else {
+					left = mid + 1;
+				}
+			}
+				int prev_boundary = (memID == 0) ? 0 : accumulative_S_nseeds[memID - 1];
+				int offset_in_mem = seedID - prev_boundary;
+				int step = steps[memID];
+				int intv_ID = step * offset_in_mem;
+				bwtintv_t p;	// create a new point to write
+				p.x[0] = mem_a[memID].x[0] + intv_ID;
+				p.x[1] = (bwtint_t)S_l_rep[0];	// we will not need this later, so we use it to store l_rep
+				p.x[2] = 1;		// only a single seed in this interval
+				p.info = mem_a[memID].info;	// same match interval on read
+				new_a[seedID] = p;	// write to global mem
+		}
+}
+
 
 }
 // first pass: find all SMEMs
@@ -4408,16 +4538,17 @@ void mem_align_GPU(process_data_t *process_data)
 
 	perf_profile_file << process_data->n_processed << "," ;
 	auto start = high_resolution_clock::now();
-
-	/* ----------------------- Preprocessing: convert letters to bits --------------------------------------*/
+	/*
+	// ----------------------- Preprocessing: convert letters to bits --------------------------------------
+	
 	if (bwa_verbose>=4) fprintf(stderr, "[M::%-25s] **** [PREPROCESS ]: convert letters to bits ...\n", __func__);
 	// converting ACTG to 0,1,2,3
 	// for each read, use 32 threads to convert in parallel
 	PREPROCESS_convert_bit_encoding_kernel <<< n_seqs, 32, 0, process_stream >>> (d_seqs);
 	gpuErrchk2( cudaPeekAtLastError() );
 	gpuErrchk2( cudaStreamSynchronize(process_stream) );
-
-	/* ----------------------- First part of pipeline: find SMEM intervals --------------------------------------*/
+    
+	// ----------------------- First part of pipeline: find SMEM intervals --------------------------------------
 
 	if (bwa_verbose>=4) fprintf(stderr, "[M::%-25s] **** [MEM FINDING]: collect MEM intervals ...\n", __func__);
 
@@ -4428,15 +4559,28 @@ void mem_align_GPU(process_data_t *process_data)
 			d_buffer_pools);
 	gpuErrchk2( cudaPeekAtLastError() );
 	gpuErrchk2( cudaStreamSynchronize(process_stream) );
-
-	/* ----------------------- Second part of pipeline: chaining seeds --------------------------------------*/
-	/* separate seeds from bwt intervals, filter out duplicated seeds */
+	
+	 ----------------------- Second part of pipeline: chaining seeds --------------------------------------
+	// separate seeds from bwt intervals, filter out duplicated seeds 
 	if (bwa_verbose>=4)  fprintf(stderr, "[M::%-25s] **** [SEED CHAINING]: seeds separating and filtering ...\n", __func__);
 	SEEDCHAINING_filter_seeds_kernel <<< n_seqs, WARPSIZE, 0, process_stream >>>(
 		d_opt, d_aux, d_buffer_pools);
 	gpuErrchk2( cudaPeekAtLastError() );
 	gpuErrchk2( cudaStreamSynchronize(process_stream) );
 
+	*/
+
+	PREPROCESS_collect_filter  <<< n_seqs, 320, 512, process_stream >>> (
+	d_opt, 
+	d_bwt, 
+	d_seqs, 
+	d_aux, 			// aux output
+	d_kmerHashTab,
+	d_buffer_pools)
+	
+	gpuErrchk2( cudaPeekAtLastError() );
+	gpuErrchk2( cudaStreamSynchronize(process_stream) );
+	
 	/* translate seed info from bwt index */
 	if (bwa_verbose>=4)  fprintf(stderr, "[M::%-25s] **** [SEED CHAINING]: translating seed info ...\n", __func__);
 	SEEDCHAINING_translate_seedinfo_kernel <<< n_seqs, 128, 0, process_stream >>> (
