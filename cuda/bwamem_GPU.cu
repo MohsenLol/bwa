@@ -2620,6 +2620,7 @@ __global__ void SEEDCHAINING_chain_kernel(
 		}	
 	}
 	__syncthreads();
+	//return; // test_point 2
 	// fix preceding_seed to make sure doubly linked-list is consistent
 	// if seed j's preceding seed is i, then seed i's suceeding seed
 	// min in |internal for loop|  may creates broken preceeding link 
@@ -2629,6 +2630,7 @@ __global__ void SEEDCHAINING_chain_kernel(
 		if (S_suceeding_seed[predec_seed] != j) // not match
 			S_preceding_seed[j] = j;	// make seed j head of chain
 	}
+	//return; // test_point 3
 	// now create the chains based on the doubly linked-lists that we found
 	__shared__ int S_n_chains[1];
 	__shared__ mem_chain_t* S_chain_a[1];
@@ -2638,6 +2640,7 @@ __global__ void SEEDCHAINING_chain_kernel(
 		S_n_chains[0] = 0;
 	}
 	__syncthreads();
+	//return; // test_point 4
 	void *d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, (blockIdx.x * blockDim.x + threadIdx.x) & 31);
 	mem_chain_t *chain_a = S_chain_a[0];
 	for (int i=threadIdx.x; i<n_seeds; i+=blockDim.x){	// i = seedID
@@ -2665,6 +2668,7 @@ __global__ void SEEDCHAINING_chain_kernel(
 			chain_a[chainID].seeds = chain_seeds;
 		}
 	}
+	//return; // test_point 5
 	__syncthreads();
 
 	// write output
@@ -2893,40 +2897,45 @@ __global__ void CHAINFILTERING_filter_kernel(
     const int opt_max_gap = opt->max_chain_gap;
     const int opt_min_seed_len_shift = opt->min_seed_len << 1;
     const float opt_drop_ratio = opt->drop_ratio;
-	if(tid < 32) { // because loop is completly sequential we do it sequentially and remove spin-lock overhead
-		if(n_chn > 0) s_kept[0] = KEEP_IT;
-		for(int i = 1; i < n_chn; i+= blockDim.x) 
-		{
-			bool should_keep = true;
-			int i_beg = s_beg[i];
-			int i_end = s_end[i];
-			int i_w   = s_w[i];
-			int i_alt = s_is_alt[i];
-			int i_len = i_end - i_beg;
-			for(int j = 0; j <i; ++j) 
-			{
-					uint8_t j_status = s_kept[j];
-					if(j_status == DROP_IT) continue;
-					int j_w = s_w[j];
-					int j_beg = s_beg[j];
-					int j_end = s_end[j];
-					int j_alt = s_is_alt[j];
-					int b_max = max(j_beg, i_beg);
-					int e_min = min(j_end, i_end);
-					if(e_min > b_max &&(!i_alt || j_alt)) { // test overlap //
-						int j_len = j_end - j_beg;
-						int min_l = min(i_len, j_len);
-						if( e_min - b_max >= min_l * opt_mask_level && 
-							min_l < opt_max_gap &&
-							i_w < j_w * opt_drop_ratio && 
-							j_w- i_w >= opt_min_seed_len_shift) { // significant overlap
-							should_keep = false;
-							break;
-						}
-						
+	for(int i = tid; i < n_chn; i+= blockDim.x) {
+		int i_beg = s_beg[i];
+		int i_end = s_end[i];
+		int i_w   = s_w[i];
+		int i_alt = s_is_alt[i];
+		int i_len = i_end - i_beg;
+		// drop chain if overlapped with earliar(more score) chains
+		while(s_kept[i] == WAIT_IT) {
+			bool should_drop = false;
+			bool suppressed_by_undecidedchain = false;
+			for(int j = 0; j < i; ++j) {
+				uint8_t j_status = s_kept[j];
+				if(j_status == DROP_IT) continue;
+				int j_w = s_w[j];
+				// test overlap //
+				int j_beg = s_beg[j];
+				int j_end = s_end[j];
+				int b_max = max(j_beg, i_beg);
+                int e_min = min(j_end, i_end);
+				//
+				if(e_min > b_max &&(!i_alt || s_is_alt[j])) {
+					int j_len = j_end - j_beg;
+					int min_l = min(i_len, j_len);
+					if(e_min - b_max >= min_l * opt_mask_level && min_l < opt_max_gap &&
+					   i_w < j_w * opt_drop_ratio && j_w- i_w >= opt_min_seed_len_shift) { // significant overlap
+						if (j_status == KEEP_IT){should_drop = true; break;} // drop if j is definitely kept, otherwise wait for j's status to be determined
+						suppressed_by_undecidedchain = true; // if should_drop is not triggered, this flag will cause i to wait for earlier chains to be determined instead of being kept immediately
 					}
+					
+				}
 			}
-			s_kept[i] = should_keep ? KEEP_IT : DROP_IT;
+			if(should_drop) {
+				s_kept[i] = DROP_IT;
+				break;
+			}
+			else if(!suppressed_by_undecidedchain) {
+				s_kept[i] = KEEP_IT;
+			}
+			// else wait for earliar undecided elements to be determined. => spin wait
 		}
 	}
 	 __syncthreads();
@@ -3289,22 +3298,25 @@ __global__ void SMITHWATERMAN_preprocessing1_kernel(
 	if (seqID>=n_seqs) return;
 	int chn_n = d_chains[seqID].n;					// n_chains of this read
 	mem_chain_t* chn_a = d_chains[seqID].a;			// chain array of this read
+	return; // test point 1 
 
 	if (chn_n==0){
 		d_regs[seqID].n = 0;
 		return;
 	}
+	return; // test point 2
 	void* d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, threadIdx.x & 31);
 
 	// count number of seeds for this read
 	int n_seeds = 0;
 	for (int i=0; i<chn_n; i++)	// loop through chains
 		n_seeds = n_seeds + chn_a[i].n;
+	return; // test point 3
 	if (n_seeds==0){
 		d_regs[seqID].n = 0;
 		return;
 	}
-
+	return; // test point 4
 	// write seed record to global d_seed_records
 	int start = atomicAdd(d_Nseeds, n_seeds);
 	int j = 0;	// start+j will be the offset on d_seed_records, j is regID
@@ -3320,7 +3332,7 @@ __global__ void SMITHWATERMAN_preprocessing1_kernel(
 			j++;
 		}	
 	}
-	return; // test point 5
+
 	// allocate regs vector
 	d_regs[seqID].n = d_regs[seqID].m = n_seeds;
 	d_regs[seqID].a = (mem_alnreg_t*)CUDAKernelCalloc(d_buffer_ptr, n_seeds, sizeof(mem_alnreg_t), 8);
@@ -4401,7 +4413,7 @@ void mem_align_GPU(process_data_t *process_data)
 	/* ----------------------- Fourth part of pipeline: Smith-Waterman extension --------------------------------------*/
 	/* pre-processing for SW extension: count number of seeds a read has, write seed_record to global mem, and allocate vector mem_alnreg_t for each read */
 	if (bwa_verbose>=4) fprintf(stderr, "[M::%-25s] **** [SMITHEWATERMAN]: preprocessing1 ... ", __func__);
-	SMITHWATER	MAN_preprocessing1_kernel <<< dimGrid_readlevel, dimBlock_readlevel, 0, process_stream >>> (
+	SMITHWATERMAN_preprocessing1_kernel <<< dimGrid_readlevel, dimBlock_readlevel, 0, process_stream >>> (
 			d_chains, d_regs, d_seed_records, d_Nseeds, n_seqs,
 			d_buffer_pools
 			);
