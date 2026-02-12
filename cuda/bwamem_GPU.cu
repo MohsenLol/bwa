@@ -2893,45 +2893,40 @@ __global__ void CHAINFILTERING_filter_kernel(
     const int opt_max_gap = opt->max_chain_gap;
     const int opt_min_seed_len_shift = opt->min_seed_len << 1;
     const float opt_drop_ratio = opt->drop_ratio;
-	for(int i = tid; i < n_chn; i+= blockDim.x) {
-		int i_beg = s_beg[i];
-		int i_end = s_end[i];
-		int i_w   = s_w[i];
-		int i_alt = s_is_alt[i];
-		int i_len = i_end - i_beg;
-		// drop chain if overlapped with earliar(more score) chains
-		while(s_kept[i] == WAIT_IT) {
-			bool should_drop = false;
-			bool suppressed_by_undecidedchain = false;
-			for(int j = 0; j < i; ++j) {
-				uint8_t j_status = s_kept[j];
-				if(j_status == DROP_IT) continue;
-				int j_w = s_w[j];
-				// test overlap //
-				int j_beg = s_beg[j];
-				int j_end = s_end[j];
-				int b_max = max(j_beg, i_beg);
-                int e_min = min(j_end, i_end);
-				//
-				if(e_min > b_max &&(!i_alt || s_is_alt[j])) {
-					int j_len = j_end - j_beg;
-					int min_l = min(i_len, j_len);
-					if(e_min - b_max >= min_l * opt_mask_level && min_l < opt_max_gap &&
-					   i_w < j_w * opt_drop_ratio && j_w- i_w >= opt_min_seed_len_shift) { // significant overlap
-						if (j_status == KEEP_IT){should_drop = true; break;} // drop if j is definitely kept, otherwise wait for j's status to be determined
-						suppressed_by_undecidedchain = true; // if should_drop is not triggered, this flag will cause i to wait for earlier chains to be determined instead of being kept immediately
+	if(tid < 32) { // because loop is completly sequential we do it sequentially and remove spin-lock overhead
+		if(n_chn > 0) s_kept[0] = KEEP_IT;
+		for(int i = 1; i < n_chn; i+= blockDim.x) 
+		{
+			bool should_keep = true;
+			int i_beg = s_beg[i];
+			int i_end = s_end[i];
+			int i_w   = s_w[i];
+			int i_alt = s_is_alt[i];
+			int i_len = i_end - i_beg;
+			for(int j = 0; j <i; ++j) 
+			{
+					uint8_t j_status = s_kept[j];
+					if(j_status == DROP_IT) continue;
+					int j_w = s_w[j];
+					int j_beg = s_beg[j];
+					int j_end = s_end[j];
+					int j_alt = s_is_alt[j];
+					int b_max = max(j_beg, i_beg);
+					int e_min = min(j_end, i_end);
+					if(e_min > b_max &&(!i_alt || j_alt)) { // test overlap //
+						int j_len = j_end - j_beg;
+						int min_l = min(i_len, j_len);
+						if( e_min - b_max >= min_l * opt_mask_level && 
+							min_l < opt_max_gap &&
+							i_w < j_w * opt_drop_ratio && 
+							j_w- i_w >= opt_min_seed_len_shift) { // significant overlap
+							should_keep = false;
+							break;
+						}
+						
 					}
-					
-				}
 			}
-			if(should_drop) {
-				s_kept[i] = DROP_IT;
-				break;
-			}
-			else if(!suppressed_by_undecidedchain) {
-				s_kept[i] = KEEP_IT;
-			}
-			// else wait for earliar undecided elements to be determined. => spin wait
+			s_kept[i] = should_keep ? KEEP_IT : DROP_IT;
 		}
 	}
 	 __syncthreads();
@@ -4406,7 +4401,7 @@ void mem_align_GPU(process_data_t *process_data)
 	/* ----------------------- Fourth part of pipeline: Smith-Waterman extension --------------------------------------*/
 	/* pre-processing for SW extension: count number of seeds a read has, write seed_record to global mem, and allocate vector mem_alnreg_t for each read */
 	if (bwa_verbose>=4) fprintf(stderr, "[M::%-25s] **** [SMITHEWATERMAN]: preprocessing1 ... ", __func__);
-	SMITHWATERMAN_preprocessing1_kernel <<< dimGrid_readlevel, dimBlock_readlevel, 0, process_stream >>> (
+	SMITHWATER	MAN_preprocessing1_kernel <<< dimGrid_readlevel, dimBlock_readlevel, 0, process_stream >>> (
 			d_chains, d_regs, d_seed_records, d_Nseeds, n_seqs,
 			d_buffer_pools
 			);
