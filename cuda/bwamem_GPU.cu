@@ -1595,7 +1595,7 @@ __global__ void MEMFINDING_collect_intv_concurrent_kernel(
 __global__ void PREPROCESS_MEMFINDING_collect_intv_concurrent_kernel(
 	const mem_opt_t *d_opt, 
 	const bwt_t *d_bwt, 
-	const bseq1_t *d_seqs, 
+	bseq1_t *d_seqs, 
 	smem_aux_t *d_aux, 			// aux output
 	kmers_bucket_t *d_kmerHashTab,
 	void* d_buffer_pools)
