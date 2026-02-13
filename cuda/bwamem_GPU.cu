@@ -21,10 +21,12 @@ using namespace std::chrono;
 #include <fstream>
 using namespace std;
 extern ofstream perf_profile_file;
-#define TIMEX(LABEL) {stop= high_resolution_clock::now();
-	duration = duration_cast<milliseconds>(stop-start);
-	perf_profile_file << LABEL << duration.count() << std::endl;
-	start = high_resolution_clock::now();}
+#define TIMEX(LABEL) do {                                               \
+    auto stop = std::chrono::high_resolution_clock::now();             \
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start); \
+    perf_profile_file << LABEL << duration.count() << " ms" << std::endl; \
+    start = std::chrono::high_resolution_clock::now();                 \
+} while (0)
 __device__ __constant__ unsigned char d_nst_nt4_table[256] = {
 	4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4, 
 	4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4, 
