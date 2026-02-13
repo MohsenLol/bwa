@@ -2789,6 +2789,9 @@ __global__ void CHAINFILTERING_sortChains_kernel(mem_chain_v* __restrict__ d_cha
 	// int seqID = blockIdx.x;
 	int n_chn = d_chains[blockIdx.x].n;
 	if (n_chn==0) return;
+	if (n_chn > MAX_N_CHAIN) {
+		return;	// too many chains, skip sorting and filtering for this read
+	}
 	void* d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, blockIdx.x & 31);
 	mem_chain_t* __restrict__ a = d_chains[blockIdx.x].a;	// array of chains
 	typedef cub::BlockRadixSort<uint32_t, SORTCHAIN_BLOCKDIMX, NKEYS_EACH_THREAD, int> BlockRadixSort;
@@ -2796,7 +2799,7 @@ __global__ void CHAINFILTERING_sortChains_kernel(mem_chain_v* __restrict__ d_cha
 	union SharedStorage
 	{
 		uint16_t w[MAX_N_CHAIN]; // array of sorted chain index
-		typename BlockRadixSort::TempStorage sort_storage;
+		//typename BlockRadixSort::TempStorage sort_storage;
 	};
 	SharedStorage* shared_storage = (SharedStorage*)smem_raw;
 	// calculate weight of each chain
@@ -2822,9 +2825,8 @@ __global__ void CHAINFILTERING_sortChains_kernel(mem_chain_v* __restrict__ d_cha
 	__syncthreads();
 	// sort weights
 	
-	BlockRadixSort(shared_storage->sort_storage).SortDescending(thread_keys, thread_values);
+	BlockRadixSort().SortDescending(thread_keys, thread_values);
 	//(removed : useless transfer) transfer sorted index array (thread_values) to shared mem
-	__syncthreads();
 
 	// export output
 	 __shared__ mem_chain_t* new_a_ptr;
@@ -4621,7 +4623,7 @@ void mem_align_GPU(process_data_t *process_data)
 	/* ----------------------- Third part of pipeline: Filtering chains --------------------------------------*/
 	/* sort chains */
 	if (bwa_verbose>=4) fprintf(stderr, "[M::%-25s] **** [CHAIN FILTERING]: sorting chains ...\n", __func__);
-	CHAINFILTERING_sortChains_kernel <<< n_seqs, SORTCHAIN_BLOCKDIMX, MAX_N_CHAIN*16, process_stream >>> (
+	CHAINFILTERING_sortChains_kernel <<< n_seqs, SORTCHAIN_BLOCKDIMX, MAX_N_CHAIN*3, process_stream >>> (
 		d_chains, d_buffer_pools);
 	gpuErrchk2( cudaPeekAtLastError());
 	gpuErrchk2( cudaStreamSynchronize(process_stream) );
