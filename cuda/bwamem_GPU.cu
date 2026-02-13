@@ -1360,7 +1360,7 @@ __global__ void MEMFINDING_collect_intv_kernel(
 	{
 			// cache read in shared mem	
 		uint8_t *S_seq = (uint8_t*)SM;
-	
+		#pragma unroll
 		for (j=threadIdx.x; j<LENGTH; j+=blockDim.x)
 			S_seq[j] = (uint8_t)seq1[j];
 
@@ -1381,6 +1381,7 @@ __global__ void MEMFINDING_collect_intv_kernel(
 		// extend to the right and find the longest seed
 		// positions higher than l_seq-min_seed_len would produce unqualified seds anyways
 		// iterate over positions in parallel upto (l_seq-min_seed_len)(min_len criteria)
+		#pragma unroll
 		for (j=threadIdx.x; j<=(LENGTH-MIN_SEED); j+=blockDim.x){
 			// find SMEMS starting at position j in the read
 		
