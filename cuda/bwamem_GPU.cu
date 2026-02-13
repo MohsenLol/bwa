@@ -2795,20 +2795,16 @@ __global__ void CHAINFILTERING_sortChains_kernel(mem_chain_v* __restrict__ d_cha
 	void* d_buffer_ptr = CUDAKernelSelectPool(d_buffer_pools, blockIdx.x & 31);
 	mem_chain_t* __restrict__ a = d_chains[blockIdx.x].a;	// array of chains
 	typedef cub::BlockRadixSort<uint32_t, SORTCHAIN_BLOCKDIMX, NKEYS_EACH_THREAD, int> BlockRadixSort;
-	extern __shared__ char smem_raw[];			// shared mem, pre-allocated
-	union SharedStorage
-	{
-		uint16_t w[MAX_N_CHAIN]; // array of sorted chain index
-		//typename BlockRadixSort::TempStorage sort_storage;
-	};
-	SharedStorage* shared_storage = (SharedStorage*)smem_raw;
+	//extern __shared__ char smem_raw[];			// shared mem, pre-allocated
+
+	__shared__ uint16_t w[MAX_N_CHAIN]; // array of sorted chain index
 	// calculate weight of each chain
 	const int n_iter = MAX_N_CHAIN/SORTCHAIN_BLOCKDIMX;
 	// load weight from global mem to shared mem
 	#pragma unroll
 	for (int k = 0; k < n_iter; ++k) {
 		int i = k * blockDim.x + threadIdx.x;
-		shared_storage->w[i] = (i < n_chn) ? mem_chain_weight(&a[i]) : 0;
+		w[i] = (i < n_chn) ? mem_chain_weight(&a[i]) : 0;
 	}
 
 	__syncthreads();
@@ -2819,7 +2815,7 @@ __global__ void CHAINFILTERING_sortChains_kernel(mem_chain_v* __restrict__ d_cha
 		#pragma unroll
 		for (int k=0; k<NKEYS_EACH_THREAD; k++){
 			thread_values[k] = base_thread+k;
-			thread_keys[k] = shared_storage->w[base_thread+k];
+			thread_keys[k] = w[base_thread+k];
 		}
 	}
 	__syncthreads();
@@ -4623,7 +4619,7 @@ void mem_align_GPU(process_data_t *process_data)
 	/* ----------------------- Third part of pipeline: Filtering chains --------------------------------------*/
 	/* sort chains */
 	if (bwa_verbose>=4) fprintf(stderr, "[M::%-25s] **** [CHAIN FILTERING]: sorting chains ...\n", __func__);
-	CHAINFILTERING_sortChains_kernel <<< n_seqs, SORTCHAIN_BLOCKDIMX, MAX_N_CHAIN*3, process_stream >>> (
+	CHAINFILTERING_sortChains_kernel <<< n_seqs, SORTCHAIN_BLOCKDIMX, 0, process_stream >>> (
 		d_chains, d_buffer_pools);
 	gpuErrchk2( cudaPeekAtLastError());
 	gpuErrchk2( cudaStreamSynchronize(process_stream) );
