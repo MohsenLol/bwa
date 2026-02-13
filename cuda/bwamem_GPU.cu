@@ -4669,7 +4669,7 @@ void mem_align_GPU(process_data_t *process_data)
 			);
 	gpuErrchk2( cudaPeekAtLastError() );
 	gpuErrchk2( cudaStreamSynchronize(process_stream) );
-
+	TIMEX("SMITHEWATERMAN Prep");
 	/* pre-processing for SW extension: prepare target and query strings for each seed */
 	// find number of seeds
 	int n_seeds;
@@ -4687,6 +4687,7 @@ void mem_align_GPU(process_data_t *process_data)
 			);
 	gpuErrchk2( cudaPeekAtLastError() );
 	gpuErrchk2( cudaStreamSynchronize(process_stream) );
+	TIMEX("SMITHEWATERMAN Prep2");
 
 	/* fifth kernel: SW extension 
 	launch n_seeds threads, each thread extend 1 seed
@@ -4700,7 +4701,7 @@ void mem_align_GPU(process_data_t *process_data)
 			d_Nseeds);
 	gpuErrchk2( cudaPeekAtLastError() );
 	gpuErrchk2( cudaStreamSynchronize(process_stream) );
-
+	TIMEX("SMITHEWATERMAN extend");
 	/* Post processing SW: remove duplicated alignments */
 	if (bwa_verbose>=4) fprintf(stderr, "[M::%-25s] **** [SMITHWATERMAN]: post-processing remove duplicated alignments ... \n", __func__);
 	SMITHWATERMAN_postprocessing_kernel <<< n_seqs, 320, 0, process_stream >>> (
@@ -4709,26 +4710,21 @@ void mem_align_GPU(process_data_t *process_data)
 		);
 	gpuErrchk2( cudaPeekAtLastError() );
 	gpuErrchk2( cudaStreamSynchronize(process_stream) );
-
-	stop = high_resolution_clock::now();
-	duration = duration_cast<milliseconds>(stop-start);
-	perf_profile_file << duration.count() << ",";
-
-	start = high_resolution_clock::now();
+	TIMEX("SMITHEWATERMAN post-processing");
 
 	/* Mark alignments that we want to write to SAM */
 	if (bwa_verbose>=4) fprintf(stderr, "[M::%-25s] **** [FINALIZEALN]: Launch kernel mark_primary ...\n", __func__);
 	FINALIZEALN_mark_primary_kernel <<< n_seqs, 256, 0, process_stream >>> (d_opt, d_regs, d_buffer_pools);
 	gpuErrchk2( cudaPeekAtLastError() );
 	gpuErrchk2( cudaStreamSynchronize(process_stream) );
-
+	TIMEX("FINALIZEALN Mark primary");
 	/* reorder alignments so that alt alignments are placed lower and higher score are placed higher */
 	if (bwa_verbose>=4) fprintf(stderr, "[M::%-25s] **** [FINALIZEALN]: Launch kernel reorder alignments ...\n", __func__);
  	FINALIZEALN_reorderAlns_kernel <<< dimGrid_readlevel, dimBlock_readlevel, 0, process_stream >>>(
 		d_regs, n_seqs, d_buffer_pools);
  	gpuErrchk2( cudaPeekAtLastError() );
 	gpuErrchk2( cudaStreamSynchronize(process_stream) );
-
+	TIMEX("FINALIZEALN reodrder");
 	/* preprocessing for global SW alignments */
 	cudaMemsetAsync(d_Nseeds, 0, sizeof(int), process_stream);		// reset seed info
 	if (bwa_verbose>=4) fprintf(stderr, "[M::%-25s] **** [FINALIZEALN]: Launch kernel preprocessing 1 ... ", __func__);
@@ -4739,6 +4735,7 @@ void mem_align_GPU(process_data_t *process_data)
 	gpuErrchk2( cudaStreamSynchronize(process_stream) );
 	gpuErrchk2( cudaMemcpyAsync(&n_seeds, d_Nseeds, sizeof(int), cudaMemcpyDeviceToHost, process_stream) );
 	gpuErrchk2( cudaStreamSynchronize(process_stream) );
+	TIMEX("FINALIZEALN preprocessing1");
 	if (bwa_verbose>=4) fprintf(stderr, "%d aligments\n", n_seeds);
 
 	if (bwa_verbose>=4) fprintf(stderr, "[M::%-25s] **** [FINALIZEALN]: Launch kernel preprocessing 2 ...\n", __func__);
@@ -4751,6 +4748,7 @@ void mem_align_GPU(process_data_t *process_data)
 		d_buffer_pools);
  	gpuErrchk2( cudaPeekAtLastError() );
 	gpuErrchk2( cudaStreamSynchronize(process_stream) );
+	TIMEX("FINALIZEALN preprocessing2");
 	auto n_sortkeys = n_seeds;
 
 	// reverse query and target if aln position is on reverse strand
@@ -4758,7 +4756,7 @@ void mem_align_GPU(process_data_t *process_data)
  	FINALIZEALN_reverseSeq_kernel <<< n_seeds, 32, 0, process_stream >>> (d_seed_records, d_alns, d_buffer_pools);
  	gpuErrchk2( cudaPeekAtLastError() );
 	gpuErrchk2( cudaStreamSynchronize(process_stream) );
-
+	TIMEX("FINALIZEALN reverse");
 	/* now we sort alignments for better warp efficiency in next kernel */
 	void *d_temp_storage = NULL;
 	size_t temp_storage_size = 0;
@@ -4772,7 +4770,7 @@ void mem_align_GPU(process_data_t *process_data)
 	gpuErrchk2( cudaPeekAtLastError() );
 	gpuErrchk2( cudaStreamSynchronize(process_stream) );
 	cudaFree(d_temp_storage);
-
+	TIMEX("FINALIZEALN sort bandwidth");
 	/* global SW */
 	// low banddiwth
 	if (bwa_verbose>=4) fprintf(stderr, "[M::%-25s] **** [FINALIZEALN]: Launch kernel global Smith-Waterman  ...\n", __func__);
@@ -4783,7 +4781,7 @@ void mem_align_GPU(process_data_t *process_data)
 		);
 	gpuErrchk2( cudaPeekAtLastError() );
 	gpuErrchk2( cudaStreamSynchronize(process_stream) );
-	
+	TIMEX("Globalize SW");
 	/* finalize aln */
 	if (bwa_verbose>=4) fprintf(stderr, "[M::%-25s] **** [FINALIZEALN]: gather all info and finalize aln ...\n", __func__);
 	FINALIZEALN_final_kernel <<< ceil((float)n_seeds/32), 32, 0, process_stream >>> (
@@ -4793,7 +4791,7 @@ void mem_align_GPU(process_data_t *process_data)
 	);
 	gpuErrchk2( cudaPeekAtLastError() );
 	gpuErrchk2( cudaStreamSynchronize(process_stream) );
-
+	TIMEX("Gather");
 	/* generate SAM for each aln */
 	if (bwa_verbose>=4) fprintf(stderr, "[M::%-25s] **** [SAMGEN]: generate SAM for each aln ...\n", __func__);
 	SAMGEN_aln2sam_finegrain_kernel <<< ceil((float)n_seeds/32), 32, 0, process_stream >>> (
@@ -4803,6 +4801,7 @@ void mem_align_GPU(process_data_t *process_data)
 	);
 	gpuErrchk2( cudaPeekAtLastError() );
 	gpuErrchk2( cudaStreamSynchronize(process_stream) );
+	TIMEX("SAGEN Generate");
 	/* finalize SAM strings for each read */
 	if (bwa_verbose>=4) fprintf(stderr, "[M::%-25s] **** [SAMGEN]: concatenate all SAM for each read ...\n", __func__);
 	SAMGEN_concatenate_kernel <<< ceil((float)n_seqs/32), 32, 0, process_stream >>> (
@@ -4812,11 +4811,7 @@ void mem_align_GPU(process_data_t *process_data)
 	);
 	gpuErrchk2( cudaStreamSynchronize(process_stream) );
 	gpuErrchk2( cudaPeekAtLastError() );
-
-	stop = high_resolution_clock::now();
-	duration = duration_cast<milliseconds>(stop-start);
-	perf_profile_file << duration.count() << std::endl;
-
+	TIMEX("SAGEN Concatenate");
 	process_data->n_processed += process_data->n_seqs;
 	
 	return;
