@@ -21,7 +21,7 @@ using namespace std::chrono;
 #include <fstream>
 using namespace std;
 extern ofstream perf_profile_file;
-#define SYNC(process_stream) gpuErrchk2( cudaStreamSynchronize(process_stream) ); gpuErrchk2( cudaStreamSynchronize(process_stream) );
+#define SYNC(process_stream) cudaPeekAtLastError(); gpuErrchk2( cudaStreamSynchronize(process_stream) );
 #define TIMEX(LABEL) do {                                               \
     auto stop = std::chrono::high_resolution_clock::now();             \
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start); \
