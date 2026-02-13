@@ -27,6 +27,8 @@ extern ofstream perf_profile_file;
     perf_profile_file << LABEL << duration.count() << " ms" << std::endl; \
     start = std::chrono::high_resolution_clock::now();                 \
 } while (0)
+
+#define TIMEX(LABEL) ;
 __device__ __constant__ unsigned char d_nst_nt4_table[256] = {
 	4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4, 
 	4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4, 
