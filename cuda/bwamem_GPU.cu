@@ -2824,7 +2824,7 @@ __global__ void CHAINFILTERING_sortChains_kernel(mem_chain_v* __restrict__ d_cha
 	
 	BlockRadixSort(shared_storage->sort_storage).SortDescending(thread_keys, thread_values);
 	//(removed : useless transfer) transfer sorted index array (thread_values) to shared mem
-	
+	__syncthreads();
 
 	// export output
 	 __shared__ mem_chain_t* new_a_ptr;
